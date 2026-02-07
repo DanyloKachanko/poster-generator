@@ -1,5 +1,5 @@
 # Development overrides
-# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# Usage: docker-compose -f docker-compose.yaml -f docker-compose.dev.yaml up --build
 services:
   backend:
     volumes:
