@@ -1,0 +1,851 @@
+{
+  "version": "2.0",
+  "categories": {
+    "japanese_zen": {
+      "display_name": "Japanese & Zen Aesthetic",
+      "icon": "sakura",
+      "color": "#E8D4D4",
+      "etsy_tags_base": [
+        "japanese wall art",
+        "zen poster",
+        "japan print",
+        "minimalist japanese",
+        "asian wall decor",
+        "wabi sabi art",
+        "oriental poster",
+        "japandi decor"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "high",
+      "competition": "medium"
+    },
+    "botanical_nature": {
+      "display_name": "Botanical & Nature",
+      "icon": "leaf",
+      "color": "#D4E8D4",
+      "etsy_tags_base": [
+        "botanical poster",
+        "plant wall art",
+        "nature print",
+        "botanical illustration",
+        "greenery decor",
+        "plant lover gift",
+        "leaf print",
+        "garden art"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "very_high",
+      "competition": "high"
+    },
+    "minimalist_abstract": {
+      "display_name": "Minimalist & Abstract",
+      "icon": "palette",
+      "color": "#E8D4E8",
+      "etsy_tags_base": [
+        "minimalist poster",
+        "abstract wall art",
+        "modern art print",
+        "line art poster",
+        "geometric print",
+        "contemporary decor",
+        "simple wall art",
+        "abstract poster"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "very_high",
+      "competition": "very_high"
+    },
+    "dark_academia": {
+      "display_name": "Dark Academia & Moody",
+      "icon": "book",
+      "color": "#4A3728",
+      "etsy_tags_base": [
+        "dark academia poster",
+        "moody wall art",
+        "vintage aesthetic",
+        "dark art print",
+        "gothic decor",
+        "library art",
+        "academia aesthetic",
+        "moody decor"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "high",
+      "competition": "low"
+    },
+    "year_of_horse_2026": {
+      "display_name": "Year of the Horse 2026",
+      "icon": "star",
+      "color": "#8B4513",
+      "etsy_tags_base": [
+        "year of horse 2026",
+        "chinese new year art",
+        "horse wall art",
+        "fire horse poster",
+        "lunar new year decor",
+        "chinese zodiac art",
+        "horse print",
+        "zodiac poster"
+      ],
+      "seasonality": "q1",
+      "demand_level": "high",
+      "competition": "low"
+    },
+    "gaming_streaming": {
+      "display_name": "Gaming & Streaming",
+      "icon": "fire",
+      "color": "#6C3FC5",
+      "etsy_tags_base": [
+        "gaming poster",
+        "gamer wall art",
+        "gaming room decor",
+        "neon art print",
+        "game room poster",
+        "streaming decor",
+        "gamer gift",
+        "retro gaming art"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "high",
+      "competition": "medium"
+    },
+    "valentines_romantic": {
+      "display_name": "Valentine's & Romantic",
+      "icon": "heart",
+      "color": "#E8567F",
+      "etsy_tags_base": [
+        "valentine wall art",
+        "romantic poster",
+        "love art print",
+        "couple wall art",
+        "valentine gift",
+        "romantic decor",
+        "love poster",
+        "heart art"
+      ],
+      "seasonality": "q1",
+      "demand_level": "very_high",
+      "competition": "high"
+    },
+    "scandinavian_nordic": {
+      "display_name": "Scandinavian & Nordic",
+      "icon": "snowflake",
+      "color": "#B8C4CC",
+      "etsy_tags_base": [
+        "scandinavian poster",
+        "nordic wall art",
+        "hygge decor",
+        "minimalist scandi",
+        "nordic print",
+        "scandinavian decor",
+        "neutral wall art",
+        "modern nordic"
+      ],
+      "seasonality": "evergreen",
+      "demand_level": "high",
+      "competition": "medium"
+    }
+  },
+  "prompts": [
+    {
+      "id": "zen_001",
+      "name": "Mount Fuji Minimalist",
+      "category": "japanese_zen",
+      "prompt": "Minimalist Mount Fuji silhouette at golden hour, soft gradient sky from pale pink to warm amber, muted earth tones, zen aesthetic, clean geometric composition, modern poster design, no text, high resolution, print-ready fine art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "mount fuji poster",
+        "fuji art print",
+        "japanese mountain",
+        "sunrise poster"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "medium",
+      "trending_score": 9,
+      "variations": [
+        "dawn light with cherry blossoms in foreground",
+        "winter scene with snow cap, deep blue tones",
+        "autumn colors with maple leaves, burnt orange palette"
+      ]
+    },
+    {
+      "id": "zen_002",
+      "name": "Great Wave Modern",
+      "category": "japanese_zen",
+      "prompt": "Modern minimalist interpretation of Japanese ocean wave, navy blue and cream ivory colors, clean geometric flowing shapes, zen aesthetic, abstract wave poster art, no text, museum quality print",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "wave poster",
+        "ocean wall art",
+        "japanese wave",
+        "navy blue art",
+        "hokusai inspired"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 9,
+      "variations": [
+        "single wave with golden foam details",
+        "stormy sea with dark indigo tones, dramatic atmosphere",
+        "calm ocean ripples with pastel blue gradient"
+      ]
+    },
+    {
+      "id": "zen_003",
+      "name": "Zen Garden",
+      "category": "japanese_zen",
+      "prompt": "Minimalist zen rock garden illustration, raked sand spiral patterns, three balanced stones, soft neutral warm beige colors, meditative serene atmosphere, modern Japanese poster art, no text, clean composition",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "zen garden art",
+        "meditation poster",
+        "zen stones",
+        "sand garden print",
+        "mindfulness decor"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "single stone with perfect concentric sand circles",
+        "bamboo grove behind garden, green accent tones",
+        "moss-covered stones with morning mist"
+      ]
+    },
+    {
+      "id": "zen_004",
+      "name": "Cherry Blossom Branch",
+      "category": "japanese_zen",
+      "prompt": "Delicate cherry blossom branch against soft white background, minimal sakura flowers in pale pink and blush, fine art botanical illustration style, clean negative space, modern Japanese aesthetic, no text",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "cherry blossom art",
+        "sakura poster",
+        "spring wall art",
+        "floral japanese",
+        "blossom print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 9,
+      "variations": [
+        "branch with falling petals, light breeze feeling",
+        "single branch on moody dark grey background",
+        "full bloom with warm golden sunlight"
+      ]
+    },
+    {
+      "id": "zen_005",
+      "name": "Torii Gate Landscape",
+      "category": "japanese_zen",
+      "prompt": "Serene torii gate standing in calm water at sunrise, atmospheric fog, warm golden and coral tones reflected in mirror-like surface, minimalist Japanese landscape, spiritual zen mood, no text, fine art poster",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "torii gate art",
+        "japan landscape",
+        "shrine poster",
+        "spiritual wall art"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "autumn forest path leading to torii gate",
+        "mountain torii gate with clouds below",
+        "floating torii in ocean at sunset"
+      ]
+    },
+    {
+      "id": "zen_006",
+      "name": "Koi Fish Pond",
+      "category": "japanese_zen",
+      "prompt": "Elegant koi fish swimming in clear pond from above, beautiful red and white patterns, lily pads, calm water reflections, traditional japanese aesthetic with modern minimal composition, no text, art print quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "koi fish art",
+        "japanese fish poster",
+        "koi pond print",
+        "asian art print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 7,
+      "variations": [
+        "single golden koi in dark water, dramatic contrast",
+        "pair of koi fish yin-yang composition",
+        "koi fish with scattered cherry blossom petals on water"
+      ]
+    },
+    {
+      "id": "bot_001",
+      "name": "Monstera Leaf Close-up",
+      "category": "botanical_nature",
+      "prompt": "Single large monstera deliciosa leaf, dramatic close-up with visible texture and fenestrations, deep emerald green on clean white background, botanical illustration meets modern photography, crisp detail, no text, print-ready",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "monstera poster",
+        "tropical leaf art",
+        "monstera print",
+        "plant art print",
+        "tropical decor"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "easy",
+      "trending_score": 9,
+      "variations": [
+        "monstera leaf with water droplets, fresh morning feel",
+        "split-leaf philodendron on cream paper texture background",
+        "variegated monstera with white and green patterns"
+      ]
+    },
+    {
+      "id": "bot_002",
+      "name": "Eucalyptus Branch Minimal",
+      "category": "botanical_nature",
+      "prompt": "Elegant eucalyptus branch with round silvery-green leaves, watercolor botanical style on soft off-white background, gentle muted sage and dusty green palette, minimal Scandinavian aesthetic, no text, art print",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "eucalyptus print",
+        "sage green art",
+        "scandinavian poster",
+        "watercolor botanical",
+        "minimalist plant"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "dried eucalyptus in muted brown and green tones",
+        "arrangement of three eucalyptus stems",
+        "eucalyptus wreath circular composition"
+      ]
+    },
+    {
+      "id": "bot_003",
+      "name": "Fern Collection",
+      "category": "botanical_nature",
+      "prompt": "Vintage botanical study of fern varieties, scientific illustration style, multiple frond types arranged on aged parchment paper, detailed line work with soft green watercolor tints, elegant academic composition, no text labels",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "fern print",
+        "vintage botanical",
+        "scientific illustration",
+        "botanical study",
+        "fern poster"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "hard",
+      "trending_score": 7,
+      "variations": [
+        "single giant fern frond, deep forest green, modern minimal",
+        "unfurling fiddlehead ferns in spring growth stages",
+        "forest floor ferns with dappled sunlight"
+      ]
+    },
+    {
+      "id": "bot_004",
+      "name": "Wildflower Meadow",
+      "category": "botanical_nature",
+      "prompt": "Gentle wildflower field illustration with poppies lavender daisies, soft watercolor style, warm summer light, pastel and muted earth tones, dreamy romantic atmosphere, modern botanical poster art, no text",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "wildflower art",
+        "meadow poster",
+        "floral print",
+        "flower wall art",
+        "cottage decor"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "dried flower arrangement in vintage style",
+        "single poppy stem on clean white background",
+        "lavender field landscape with golden sunset"
+      ]
+    },
+    {
+      "id": "bot_005",
+      "name": "Palm Leaf Tropical",
+      "category": "botanical_nature",
+      "prompt": "Dramatic fan palm leaf, close-up of radiating leaf structure, deep green with bright natural light creating shadows and depth, tropical modern aesthetic, sharp detail, clean background, no text, poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "palm leaf poster",
+        "tropical print",
+        "palm art",
+        "jungle wall art",
+        "tropical leaf"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "banana leaf with morning dew drops",
+        "palm shadow pattern on white wall, abstract",
+        "areca palm fronds layered, jungle density"
+      ]
+    },
+    {
+      "id": "min_001",
+      "name": "Continuous Line Face",
+      "category": "minimalist_abstract",
+      "prompt": "Elegant continuous single line drawing of woman face profile, minimal abstract contour, black line on clean white background, artistic modern aesthetic, one-line art style, sophisticated simplicity, no text, high contrast poster",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "line art face",
+        "one line drawing",
+        "woman portrait minimal",
+        "abstract face poster",
+        "line drawing print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 9,
+      "variations": [
+        "face with closed eyes and flower in hair",
+        "two faces facing each other, love theme",
+        "face with abstract botanical elements"
+      ]
+    },
+    {
+      "id": "min_002",
+      "name": "Abstract Arches",
+      "category": "minimalist_abstract",
+      "prompt": "Modern abstract geometric composition with overlapping arches and semicircles, warm terracotta burnt sienna sage green and cream palette, mid-century modern aesthetic, textured paper feel, no text, contemporary poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "geometric poster",
+        "mid century art",
+        "arch print",
+        "terracotta decor",
+        "boho modern art"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "earth tones with navy blue accent",
+        "monochrome beige and cream layered arches",
+        "rainbow arch with muted pastel colors"
+      ]
+    },
+    {
+      "id": "min_003",
+      "name": "Organic Shapes",
+      "category": "minimalist_abstract",
+      "prompt": "Abstract organic blob shapes composition, soft curves and flowing forms, dusty rose sage green warm clay and cream colors, matisse-inspired cutout style, modern art poster, balanced asymmetric layout, no text",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "matisse style art",
+        "organic shapes",
+        "abstract shapes poster",
+        "modern cutout art",
+        "contemporary print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "single large organic form with texture detail",
+        "black and white organic shapes, high contrast",
+        "overlapping translucent shapes with color blending"
+      ]
+    },
+    {
+      "id": "min_004",
+      "name": "Sun and Moon Duality",
+      "category": "minimalist_abstract",
+      "prompt": "Minimalist sun and crescent moon illustration, simple geometric celestial bodies, warm gold and cool silver-blue tones on cream background, balanced duality composition, mystical minimal aesthetic, no text, poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "sun moon poster",
+        "celestial wall art",
+        "boho sun print",
+        "moon phase art",
+        "celestial decor"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "sun only with radiating geometric rays",
+        "moon phases horizontal arrangement",
+        "eclipse moment, dramatic contrast"
+      ]
+    },
+    {
+      "id": "dark_001",
+      "name": "Ancient Library",
+      "category": "dark_academia",
+      "prompt": "Grand old library interior with towering bookshelves, warm candlelight glow, leather-bound books, rich mahogany wood, atmospheric dust particles in light beams, dark academia aesthetic, oil painting quality, moody chiaroscuro lighting, no text",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "library poster",
+        "bookshelf art",
+        "dark academia print",
+        "book lover gift",
+        "vintage library"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "hard",
+      "trending_score": 9,
+      "variations": [
+        "spiral staircase in gothic library tower",
+        "reading nook with single candle and open book",
+        "library corridor with arched ceiling, dramatic perspective"
+      ]
+    },
+    {
+      "id": "dark_002",
+      "name": "Moody Landscape",
+      "category": "dark_academia",
+      "prompt": "Dramatic moody mountain landscape at twilight, dark storm clouds with break of golden light, deep forest in foreground, atmospheric fog in valleys, romantic sublime painting style, rich earth tones with deep blues and burnt umber, no text",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "moody landscape",
+        "dark mountain art",
+        "storm poster",
+        "dramatic nature",
+        "romantic art print"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "hard",
+      "trending_score": 8,
+      "variations": [
+        "foggy forest path disappearing into mist",
+        "ruined castle on cliff edge, moonlit sky",
+        "stormy sea with lighthouse, dramatic waves"
+      ]
+    },
+    {
+      "id": "dark_003",
+      "name": "Vintage Botanical Dark",
+      "category": "dark_academia",
+      "prompt": "Dark botanical illustration of roses and thorns on deep black background, vintage scientific study aesthetic, detailed realistic petals in deep crimson burgundy, gold accent details, moody gothic romantic, no text, museum print quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "dark botanical",
+        "gothic flower art",
+        "dark floral poster",
+        "moody botanical",
+        "black background art"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "hard",
+      "trending_score": 8,
+      "variations": [
+        "dried flowers arrangement on black, vanitas still life",
+        "white flowers on dark background, moonlit garden feel",
+        "mushrooms and ferns on dark forest floor"
+      ]
+    },
+    {
+      "id": "dark_004",
+      "name": "Classical Architecture",
+      "category": "dark_academia",
+      "prompt": "Dramatic classical Greek or Roman column ruins, atmospheric golden hour light, overgrown with ivy, romantic decay aesthetic, architectural detail, warm stone tones against deep sky, dark academia mood, no text, fine art print",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "architecture poster",
+        "classical ruins art",
+        "greek column print",
+        "roman aesthetic",
+        "academia architecture"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "hard",
+      "trending_score": 7,
+      "variations": [
+        "gothic cathedral interior with stained glass light",
+        "ancient amphitheater under starry sky",
+        "renaissance courtyard with fountain"
+      ]
+    },
+    {
+      "id": "horse_001",
+      "name": "Fire Horse Minimalist",
+      "category": "year_of_horse_2026",
+      "prompt": "Majestic galloping horse silhouette with flowing fiery mane, deep red and golden orange flames, dark background, dynamic powerful movement, Chinese zodiac fire horse 2026 aesthetic, modern minimal poster design, no text, dramatic contrast",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "fire horse art",
+        "galloping horse poster",
+        "red horse print",
+        "powerful horse art",
+        "2026 zodiac"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "hard",
+      "trending_score": 9,
+      "variations": [
+        "white horse with ethereal golden glow, celestial",
+        "ink wash style horse in motion, black and white",
+        "geometric low-poly horse in fire colors"
+      ]
+    },
+    {
+      "id": "horse_002",
+      "name": "Traditional Ink Horse",
+      "category": "year_of_horse_2026",
+      "prompt": "Chinese ink wash painting of elegant horse, bold expressive brush strokes, traditional sumi-e style, black ink on rice paper texture, dynamic pose, artistic calligraphic energy, zen movement captured, no text or characters, museum quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "ink horse art",
+        "sumi-e poster",
+        "chinese brush painting",
+        "asian horse art",
+        "ink wash print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "hard",
+      "trending_score": 8,
+      "variations": [
+        "galloping horse with splashing ink effect",
+        "standing horse in calm contemplation, minimal strokes",
+        "two horses playing, dynamic brush energy"
+      ]
+    },
+    {
+      "id": "horse_003",
+      "name": "Modern Equestrian",
+      "category": "year_of_horse_2026",
+      "prompt": "Elegant horse portrait, close-up side profile, dramatic studio lighting, rich warm tones, flowing mane detail, noble expression, fine art equestrian photography style, dark moody background, no text, poster quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "horse portrait",
+        "equestrian art",
+        "horse photography",
+        "horse lover gift",
+        "equine poster"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "white horse in golden wheat field at sunset",
+        "horse running through shallow water, splashing",
+        "wild horses herd on misty mountain"
+      ]
+    },
+    {
+      "id": "game_001",
+      "name": "Neon Cyberpunk City",
+      "category": "gaming_streaming",
+      "prompt": "Cyberpunk city street at night, neon signs glowing purple pink and cyan blue, rain-slicked streets with reflections, atmospheric fog, moody dystopian aesthetic, detailed urban architecture, cinematic widescreen feel in vertical frame, no text or readable signs, poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "cyberpunk poster",
+        "neon city art",
+        "synthwave print",
+        "neon wall art",
+        "futuristic poster"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "hard",
+      "trending_score": 9,
+      "variations": [
+        "lone figure walking in neon-lit alley",
+        "rooftop view of neon city skyline",
+        "cyberpunk market street with holographic displays"
+      ]
+    },
+    {
+      "id": "game_002",
+      "name": "Retro Pixel Sunset",
+      "category": "gaming_streaming",
+      "prompt": "Retro pixel art style sunset landscape, synthwave vaporwave aesthetic, gradient from deep purple through magenta to warm orange, geometric sun, palm tree silhouettes, 80s retrowave poster design, grid ground, no text, clean vector quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "synthwave poster",
+        "retro sunset art",
+        "vaporwave print",
+        "80s aesthetic",
+        "retrowave decor"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "mountain silhouette with retro grid and neon sun",
+        "retro sports car on highway, outrun aesthetic",
+        "retro pixel art space scene with planets"
+      ]
+    },
+    {
+      "id": "game_003",
+      "name": "Abstract Neon Geometry",
+      "category": "gaming_streaming",
+      "prompt": "Abstract geometric shapes floating in dark space, glowing neon edges in electric blue magenta and teal, clean lines and sharp angles, futuristic minimal aesthetic, dark background with light bloom effects, no text, modern poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "neon geometric art",
+        "futuristic print",
+        "abstract neon poster",
+        "tech wall art",
+        "modern geometric"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "medium",
+      "trending_score": 7,
+      "variations": [
+        "neon wireframe sphere with particle effects",
+        "glowing hexagonal grid pattern",
+        "abstract portal with swirling neon energy"
+      ]
+    },
+    {
+      "id": "val_001",
+      "name": "Minimalist Love Line Art",
+      "category": "valentines_romantic",
+      "prompt": "Minimalist continuous line drawing of couple embracing, single elegant black line on white background, romantic abstract silhouette, intimate tender moment, modern love art, sophisticated simplicity, no text, art print quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "couple line art",
+        "love line drawing",
+        "romantic minimalist",
+        "couple poster",
+        "valentine art"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 9,
+      "variations": [
+        "two hands reaching toward each other, romantic gesture",
+        "couple kissing silhouette, single line",
+        "intertwined figures dancing, flowing line"
+      ]
+    },
+    {
+      "id": "val_002",
+      "name": "Abstract Love Hearts",
+      "category": "valentines_romantic",
+      "prompt": "Abstract artistic heart shapes in soft watercolor blush pink rose gold and warm cream, organic flowing forms, romantic modern aesthetic, textured paper background, gentle overlapping translucent layers, no text, contemporary poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "heart poster",
+        "pink abstract art",
+        "blush wall art",
+        "romantic abstract",
+        "love heart print"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "single geometric heart with gold leaf texture",
+        "scattered small hearts in ombre gradient",
+        "heart made of botanical flowers and leaves"
+      ]
+    },
+    {
+      "id": "val_003",
+      "name": "Romantic Sunset Couple",
+      "category": "valentines_romantic",
+      "prompt": "Silhouette of couple standing together watching sunset over ocean, warm golden and peachy pink sky, romantic atmosphere, vast horizon, intimate scale against nature, fine art photography style, no text, poster quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "sunset couple art",
+        "romantic sunset poster",
+        "beach couple print",
+        "love sunset art"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "couple under cherry blossom tree, spring romantic",
+        "couple walking on beach, footprints in sand",
+        "couple on bridge in Paris, Eiffel Tower silhouette"
+      ]
+    },
+    {
+      "id": "scandi_001",
+      "name": "Hygge Living Room",
+      "category": "scandinavian_nordic",
+      "prompt": "Cozy Scandinavian hygge interior scene, warm blankets and candles, natural wood and cream textiles, peaceful evening atmosphere, soft warm lighting, minimalist comfort, modern nordic lifestyle aesthetic, no text, poster art",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "hygge poster",
+        "cozy interior art",
+        "scandinavian interior",
+        "candle print",
+        "cozy decor"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "reading corner with wool blanket and coffee",
+        "minimal fireplace with stacked logs and candles",
+        "rainy window scene with cozy interior"
+      ]
+    },
+    {
+      "id": "scandi_002",
+      "name": "Nordic Forest Lake",
+      "category": "scandinavian_nordic",
+      "prompt": "Serene Nordic forest lake at dawn, perfect water reflections of pine trees, soft mist rising, muted Scandinavian color palette of grey green and soft blue, peaceful contemplative atmosphere, no text, fine art landscape",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "nordic landscape",
+        "forest lake art",
+        "scandinavian nature",
+        "peaceful lake print",
+        "pine forest poster"
+      ],
+      "style_preset": "CINEMATIC",
+      "difficulty": "medium",
+      "trending_score": 8,
+      "variations": [
+        "frozen winter lake with snow-covered pines",
+        "autumn lake with golden birch reflections",
+        "misty morning with rowing boat at dock"
+      ]
+    },
+    {
+      "id": "scandi_003",
+      "name": "Minimalist Arch",
+      "category": "scandinavian_nordic",
+      "prompt": "Clean minimalist arch shape, soft gradient in neutral warm tones, modern Scandinavian design aesthetic, subtle paper texture, simple geometric form, calming neutral palette, no text, contemporary poster",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "arch poster",
+        "neutral wall art",
+        "minimal geometric",
+        "scandi modern art",
+        "beige wall art"
+      ],
+      "style_preset": "NONE",
+      "difficulty": "easy",
+      "trending_score": 7,
+      "variations": [
+        "double arch with shadow play",
+        "arch with botanical element emerging",
+        "series of graduating arches in earth tones"
+      ]
+    },
+    {
+      "id": "scandi_004",
+      "name": "Dried Flower Arrangement",
+      "category": "scandinavian_nordic",
+      "prompt": "Elegant dried flower arrangement in ceramic vase, pampas grass lunaria and dried eucalyptus, neutral beige and cream tones, soft natural lighting, wabi-sabi aesthetic, Scandinavian still life, no text, print quality",
+      "negative_prompt": "text, words, letters, watermark, signature, logo, frame, border, ugly, blurry, low quality, distorted, deformed, disfigured, bad anatomy, extra limbs",
+      "tags_extra": [
+        "dried flowers art",
+        "pampas grass poster",
+        "neutral still life",
+        "boho scandi print",
+        "vase art"
+      ],
+      "style_preset": "STOCK_PHOTO",
+      "difficulty": "easy",
+      "trending_score": 8,
+      "variations": [
+        "single pampas grass stem in tall slim vase",
+        "shadow of dried flowers on cream wall",
+        "flat lay of dried botanicals on linen"
+      ]
+    }
+  ]
+}
