@@ -550,7 +550,7 @@ async def get_pending_due() -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
             SELECT * FROM scheduled_products
-            WHERE status = 'pending' AND scheduled_publish_at <= NOW()::text
+            WHERE status = 'pending' AND scheduled_publish_at::timestamptz <= NOW()
             ORDER BY scheduled_publish_at
             """
         )
@@ -751,7 +751,7 @@ async def get_daily_summary_stats() -> Dict[str, Any]:
         upcoming_today = await conn.fetchval(
             """SELECT COUNT(*) FROM scheduled_products
                WHERE status = 'pending'
-               AND scheduled_publish_at::date = CURRENT_DATE"""
+               AND scheduled_publish_at::timestamptz::date = CURRENT_DATE"""
         )
 
     stats = await get_schedule_stats()
