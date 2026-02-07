@@ -2,16 +2,10 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Create data directory for persistent SQLite
-RUN mkdir -p /app/data
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
-
-# Default database path for production (volume mounted)
-ENV DATABASE_PATH=/app/data/poster_generator.db
 
 EXPOSE 8000
 

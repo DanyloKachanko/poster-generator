@@ -38,7 +38,7 @@ load_dotenv()  # Also try local .env as fallback
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database and scheduler on startup."""
-    db.init_db()
+    await db.init_db()
     await publish_scheduler.start()
     yield
     await publish_scheduler.stop()
@@ -372,10 +372,10 @@ async def health_check():
 @app.get("/health")
 async def health():
     """Health check with DB connectivity test (for container orchestration)."""
-    import aiosqlite
     try:
-        async with aiosqlite.connect(db.DB_PATH) as conn:
-            await conn.execute("SELECT 1")
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
         db_status = "ok"
     except Exception as e:
         db_status = f"error: {e}"

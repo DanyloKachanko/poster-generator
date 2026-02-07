@@ -1,4 +1,16 @@
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: poster
+      POSTGRES_PASSWORD: poster
+      POSTGRES_DB: poster_generator
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
   backend:
     build: ./backend
     ports:
@@ -6,6 +18,7 @@ services:
     env_file:
       - .env
     environment:
+      - DATABASE_URL=postgresql://poster:poster@db:5432/poster_generator
       - LEONARDO_API_KEY=${LEONARDO_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - PRINTIFY_API_TOKEN=${PRINTIFY_API_TOKEN}
@@ -13,9 +26,8 @@ services:
       - ETSY_API_KEY=${ETSY_API_KEY}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-      - DATABASE_PATH=/app/data/poster_generator.db
-    volumes:
-      - db_data:/app/data
+    depends_on:
+      - db
     restart: unless-stopped
 
   frontend:
@@ -32,4 +44,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  db_data:
+  pg_data:
