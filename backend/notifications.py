@@ -33,17 +33,26 @@ class NotificationService:
     def is_configured(self) -> bool:
         return self._enabled
 
-    async def _send(self, message: str):
+    async def _send(self, message: str, image_url: Optional[str] = None):
         if not self._enabled:
             return
         try:
-            url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             async with httpx.AsyncClient() as client:
-                await client.post(url, json={
-                    "chat_id": self.chat_id,
-                    "text": message,
-                    "parse_mode": "HTML",
-                }, timeout=10.0)
+                if image_url:
+                    url = f"https://api.telegram.org/bot{self.token}/sendPhoto"
+                    await client.post(url, json={
+                        "chat_id": self.chat_id,
+                        "photo": image_url,
+                        "caption": message,
+                        "parse_mode": "HTML",
+                    }, timeout=15.0)
+                else:
+                    url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+                    await client.post(url, json={
+                        "chat_id": self.chat_id,
+                        "text": message,
+                        "parse_mode": "HTML",
+                    }, timeout=10.0)
         except Exception as e:
             logger.warning("Telegram notification failed: %s", e)
 
@@ -59,7 +68,7 @@ class NotificationService:
         )
         await self._send(msg)
 
-    async def notify_queued(self, title: str, scheduled_at: str):
+    async def notify_queued(self, title: str, scheduled_at: str, image_url: Optional[str] = None):
         """Product added to publish queue."""
         try:
             dt = datetime.fromisoformat(scheduled_at)
@@ -72,10 +81,11 @@ class NotificationService:
             f"📅 <b>Queued:</b> {title}\n"
             f"⏰ Scheduled: {time_str}"
         )
-        await self._send(msg)
+        await self._send(msg, image_url=image_url)
 
     async def notify_published(
-        self, title: str, pending_count: int, next_at: Optional[str] = None
+        self, title: str, pending_count: int, next_at: Optional[str] = None,
+        image_url: Optional[str] = None,
     ):
         """Product published to Etsy."""
         lines = [f"✅ <b>Published:</b> {title}"]
@@ -91,7 +101,7 @@ class NotificationService:
                 )
             except Exception:
                 lines.append(f"⏰ Next publish: {next_at}")
-        await self._send("\n".join(lines))
+        await self._send("\n".join(lines), image_url=image_url)
 
     async def notify_publish_failed(self, title: str, error: str):
         """Publish failed."""

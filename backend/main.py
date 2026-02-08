@@ -2338,16 +2338,29 @@ async def schedule_add(request: ScheduleAddRequest):
     """Add a Printify product to the publish schedule.
     If scheduled_publish_at is provided, use that exact time. Otherwise auto-calculate."""
     try:
+        # Fetch product image from Printify
+        image_url = None
+        if printify.is_configured:
+            try:
+                product = await printify.get_product(request.printify_product_id)
+                images = product.get("images", [])
+                if images:
+                    image_url = images[0].get("src")
+            except Exception:
+                pass
+
         if request.scheduled_publish_at:
             result = await db.add_to_schedule(
                 printify_product_id=request.printify_product_id,
                 title=request.title,
                 scheduled_publish_at=request.scheduled_publish_at,
+                image_url=image_url,
             )
         else:
             result = await publish_scheduler.add_to_queue(
                 printify_product_id=request.printify_product_id,
                 title=request.title,
+                image_url=image_url,
             )
         return result
     except Exception as e:

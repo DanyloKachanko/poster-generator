@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS scheduled_products (
     id SERIAL PRIMARY KEY,
     printify_product_id TEXT UNIQUE NOT NULL,
     title TEXT NOT NULL,
+    image_url TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     scheduled_publish_at TEXT NOT NULL,
     published_at TEXT,
@@ -132,6 +133,13 @@ async def init_db():
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(SCHEMA)
+        # Migrations
+        try:
+            await conn.execute(
+                "ALTER TABLE scheduled_products ADD COLUMN image_url TEXT"
+            )
+        except asyncpg.exceptions.DuplicateColumnError:
+            pass
     print(f"Database initialized (PostgreSQL)")
 
 
@@ -508,20 +516,22 @@ async def add_to_schedule(
     printify_product_id: str,
     title: str,
     scheduled_publish_at: str,
+    image_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Add a product to the publish schedule."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO scheduled_products (printify_product_id, title, scheduled_publish_at)
-            VALUES ($1, $2, $3)
+            INSERT INTO scheduled_products (printify_product_id, title, image_url, scheduled_publish_at)
+            VALUES ($1, $2, $3, $4)
             """,
-            printify_product_id, title, scheduled_publish_at,
+            printify_product_id, title, image_url, scheduled_publish_at,
         )
     return {
         "printify_product_id": printify_product_id,
         "title": title,
+        "image_url": image_url,
         "status": "pending",
         "scheduled_publish_at": scheduled_publish_at,
     }

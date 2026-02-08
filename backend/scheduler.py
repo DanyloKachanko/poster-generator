@@ -7,7 +7,7 @@ Etsy's recency boost. Settings are stored in DB and reload every cycle.
 
 import logging
 from datetime import datetime, timedelta, timezone, time as dt_time
-from typing import List
+from typing import List, Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -127,14 +127,28 @@ class PublishScheduler:
     # Public API
     # ------------------------------------------------------------------
 
-    async def add_to_queue(self, printify_product_id: str, title: str) -> dict:
+    async def _get_product_image(self, printify_product_id: str) -> Optional[str]:
+        """Fetch the default mockup image URL from Printify."""
+        try:
+            product = await self.printify.get_product(printify_product_id)
+            images = product.get("images", [])
+            if images:
+                return images[0].get("src")
+        except Exception as e:
+            logger.warning("Failed to fetch product image for %s: %s", printify_product_id, e)
+        return None
+
+    async def add_to_queue(self, printify_product_id: str, title: str, image_url: Optional[str] = None) -> dict:
         """Add product to schedule with auto-calculated slot."""
         await self._load_settings()
         next_slot = await self._calculate_next_slot()
+        if not image_url:
+            image_url = await self._get_product_image(printify_product_id)
         result = await db.add_to_schedule(
             printify_product_id=printify_product_id,
             title=title,
             scheduled_publish_at=next_slot.isoformat(),
+            image_url=image_url,
         )
         slot_est = next_slot.astimezone(EST)
         logger.info(
@@ -143,27 +157,26 @@ class PublishScheduler:
             title[:40],
             slot_est.strftime("%Y-%m-%d %H:%M"),
         )
-        await self.notifier.notify_queued(title, next_slot.isoformat())
+        await self.notifier.notify_queued(title, next_slot.isoformat(), image_url=image_url)
         return result
 
     async def publish_now(self, printify_product_id: str) -> dict:
         """Immediately publish a product, bypassing the schedule."""
+        # Get info before publishing (status changes after)
+        queue = await db.get_schedule_queue()
+        item_info = next(
+            (item for item in queue if item["printify_product_id"] == printify_product_id),
+            None,
+        )
+        title = item_info["title"] if item_info else printify_product_id
+        image_url = item_info.get("image_url") if item_info else None
+
         await self.printify.publish_product(printify_product_id)
         await db.update_schedule_status(printify_product_id, "published")
         logger.info("Immediately published %s", printify_product_id)
-        # Get title for notification
-        queue = await db.get_schedule_queue()
-        title = next(
-            (
-                item["title"]
-                for item in queue
-                if item["printify_product_id"] == printify_product_id
-            ),
-            printify_product_id,
-        )
         stats = await db.get_schedule_stats()
         await self.notifier.notify_published(
-            title, stats["pending"], stats["next_publish_at"]
+            title, stats["pending"], stats["next_publish_at"], image_url=image_url
         )
         return {"printify_product_id": printify_product_id, "status": "published"}
 
@@ -190,7 +203,8 @@ class PublishScheduler:
                 logger.info("Published %s (%s)", pid, item["title"][:40])
                 stats = await db.get_schedule_stats()
                 await self.notifier.notify_published(
-                    item["title"], stats["pending"], stats["next_publish_at"]
+                    item["title"], stats["pending"], stats["next_publish_at"],
+                    image_url=item.get("image_url"),
                 )
             except Exception as e:
                 await db.update_schedule_status(pid, "failed", str(e))

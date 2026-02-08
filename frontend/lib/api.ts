@@ -1128,6 +1128,7 @@ export interface ScheduledProduct {
   id: number;
   printify_product_id: string;
   title: string;
+  image_url: string | null;
   status: 'pending' | 'published' | 'failed';
   scheduled_publish_at: string;
   published_at: string | null;

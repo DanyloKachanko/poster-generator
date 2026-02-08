@@ -438,12 +438,20 @@ export default function SchedulePage() {
               key={item.id}
               className="bg-dark-card border border-dark-border rounded-lg px-4 py-3 flex items-center gap-4"
             >
-              {/* Status dot */}
-              <div
-                className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                  statusDot[item.status] || 'bg-gray-500'
-                }`}
-              />
+              {/* Product image or status dot */}
+              {item.image_url ? (
+                <img
+                  src={item.image_url}
+                  alt={item.title}
+                  className="w-12 h-16 object-cover rounded flex-shrink-0"
+                />
+              ) : (
+                <div
+                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                    statusDot[item.status] || 'bg-gray-500'
+                  }`}
+                />
+              )}
 
               {/* Info */}
               <div className="flex-1 min-w-0">
