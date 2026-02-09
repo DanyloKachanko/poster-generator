@@ -14,6 +14,7 @@ class EtsyListing:
     title: str
     tags: list[str]
     description: str
+    superstar_keyword: str = ""
 
     def to_dict(self):
         return {
@@ -21,6 +22,7 @@ class EtsyListing:
             "tags": self.tags,
             "description": self.description,
             "tags_string": ", ".join(self.tags),
+            "superstar_keyword": self.superstar_keyword,
         }
 
 
@@ -28,7 +30,7 @@ class ListingGenerator:
     """Generate Etsy listing text using Claude API"""
 
     BASE_URL = "https://api.anthropic.com/v1/messages"
-    MODEL = "claude-3-5-haiku-20241022"
+    MODEL = "claude-sonnet-4-5-20250929"
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
@@ -61,7 +63,7 @@ class ListingGenerator:
 
         payload = {
             "model": self.MODEL,
-            "max_tokens": 1024,
+            "max_tokens": 2048,
             "system": SYSTEM_PROMPT,
             "messages": [
                 {"role": "user", "content": prompt}
@@ -73,7 +75,7 @@ class ListingGenerator:
                 self.BASE_URL,
                 headers=self.headers,
                 json=payload,
-                timeout=30.0,
+                timeout=60.0,
             )
             response.raise_for_status()
             data = response.json()
@@ -89,14 +91,20 @@ class ListingGenerator:
 
         listing_data = json.loads(content, strict=False)
 
+        # Validate and enforce limits
         title = listing_data["title"][:140]
-        tags = [tag[:20].lower().strip() for tag in listing_data["tags"][:13]]
-        description = listing_data["description"][:2000]
+        tags = [tag[:20].lower().strip() for tag in listing_data.get("tags", [])[:13]]
+        # Pad to 13 if model returned fewer
+        while len(tags) < 13:
+            tags.append(f"wall art print {len(tags)}"[:20])
+        desc = listing_data.get("description", "")
+        sk = listing_data.get("superstar_keyword", "")
 
         return EtsyListing(
             title=title,
             tags=tags,
-            description=description,
+            description=desc,
+            superstar_keyword=sk,
         )
 
     async def regenerate_title(
@@ -110,17 +118,20 @@ class ListingGenerator:
         prompt = f"""Current Etsy listing title: "{current_title}"
 Style: {style}, Theme: {preset}
 
-Generate 1 alternative title that:
-- Is under 140 characters
-- Uses different keyword order
-- Maintains SEO value
-- Sounds natural
+Generate 1 alternative title following these rules:
+- Max 140 characters
+- Start with the main keyword (superstar keyword)
+- Separate sections with " | "
+- No repeated words across the whole title
+- Must read naturally, not spammy
+- Include: what it is + style + who it's for/where it goes
 
 Respond with ONLY the new title, no quotes, no explanation."""
 
         payload = {
             "model": self.MODEL,
             "max_tokens": 200,
+            "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": prompt}],
         }
 
@@ -129,7 +140,7 @@ Respond with ONLY the new title, no quotes, no explanation."""
                 self.BASE_URL,
                 headers=self.headers,
                 json=payload,
-                timeout=15.0,
+                timeout=30.0,
             )
             response.raise_for_status()
             data = response.json()
@@ -151,19 +162,33 @@ Respond with ONLY the new title, no quotes, no explanation."""
         prompt = f"""Current Etsy listing tags: {tags_str}{title_context}
 Style: {style}, Theme: {preset}
 
-Generate exactly 13 new Etsy tags that:
-- Each tag is max 20 characters
-- Mix specific and broad keywords
-- Include style, room types, gift occasions
-- Lowercase, no hashtags
+Generate exactly 13 new Etsy tags following this structure:
+1. superstar keyword (main search query)
+2. gift keyword (gift for her/him/mom)
+3. product type variation (poster/print/wall art synonym)
+4. style + product
+5. room + decor
+6. occasion/season keyword
+7. synonym of main keyword
+8. adjective + product
+9. different room variation
+10. seasonal/trend keyword
+11. niche keyword
+12. alternative name for subject
+13. broad category
+
+RULES:
+- Each tag: 2-3 words, max 20 characters, lowercase
+- No single-word tags
+- Don't repeat the same word in more than 2-3 tags
 - Different from current tags where possible
-- Optimized for Etsy SEO
 
 Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."""
 
         payload = {
             "model": self.MODEL,
             "max_tokens": 300,
+            "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": prompt}],
         }
 
@@ -172,7 +197,7 @@ Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."
                 self.BASE_URL,
                 headers=self.headers,
                 json=payload,
-                timeout=15.0,
+                timeout=30.0,
             )
             response.raise_for_status()
             data = response.json()
@@ -196,17 +221,26 @@ Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."
 
 Style: {style}, Theme: {preset}
 
-Rules:
-- 500-800 characters
-- Mention museum-quality paper
-- Include room suggestions
-- Make it compelling but not pushy
+Follow this structure:
+- Paragraph 1: Superstar keyword in first sentence (first 160 chars critical for Google SEO). What this poster is, who it's for.
+- Paragraph 2: Repeat keyword naturally. Expanded value — what interiors it complements.
+- ♥ PERFECT FOR: 4 bullet points (use cases, gift ideas, rooms)
+- 🖼 PRINT DETAILS: Museum-quality matte paper (250 gsm / 110 lb), fade-resistant archival inks, multiple sizes, sturdy packaging, frame not included
+- 📐 AVAILABLE SIZES: 8×10 (20×25cm), 11×14 (28×36cm), 12×16 (30×40cm), 16×20 (40×50cm), 18×24 (45×60cm), 24×36 (60×90cm)
+- 🎁 Gift angle paragraph
+- Last line: shop promo for DovShopDesign
+
+RULES:
+- Min 300 characters total
+- NO generic phrases like "Transform your space"
+- Be specific about colors, subject, mood
 
 Respond with ONLY the new description, no quotes."""
 
         payload = {
             "model": self.MODEL,
-            "max_tokens": 500,
+            "max_tokens": 1500,
+            "system": SYSTEM_PROMPT,
             "messages": [{"role": "user", "content": prompt}],
         }
 
@@ -215,9 +249,9 @@ Respond with ONLY the new description, no quotes."""
                 self.BASE_URL,
                 headers=self.headers,
                 json=payload,
-                timeout=15.0,
+                timeout=30.0,
             )
             response.raise_for_status()
             data = response.json()
 
-        return data["content"][0]["text"].strip()[:2000]
+        return data["content"][0]["text"].strip()
