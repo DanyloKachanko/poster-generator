@@ -154,10 +154,10 @@ class BatchManager:
         model_config = models.get(job.model_id, models.get("phoenix"))
         model_uuid = model_config["id"]
 
-        # Resolve size dimensions
+        # Resolve size dimensions (cap to Leonardo max of 1536)
         size_config = sizes.get(job.size_id, sizes.get("poster_4_5"))
-        width = size_config["width"]
-        height = size_config["height"]
+        width = min(size_config["width"], 1536)
+        height = min(size_config["height"], 1536)
 
         for prompt_id in job.prompt_ids:
             if job.status == BatchStatus.CANCELLED:
