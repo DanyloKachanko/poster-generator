@@ -125,6 +125,16 @@ CREATE TABLE IF NOT EXISTS schedule_settings (
     enabled INTEGER NOT NULL DEFAULT 1,
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS calendar_event_products (
+    id SERIAL PRIMARY KEY,
+    event_id TEXT NOT NULL,
+    printify_product_id TEXT NOT NULL,
+    preset_id TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(event_id, printify_product_id)
+);
+CREATE INDEX IF NOT EXISTS idx_calendar_event ON calendar_event_products(event_id);
 """
 
 
@@ -768,3 +778,48 @@ async def get_daily_summary_stats() -> Dict[str, Any]:
     stats["published_yesterday"] = published_yesterday
     stats["upcoming_today"] = upcoming_today
     return stats
+
+
+# === Calendar Event Products ===
+
+async def track_calendar_product(
+    event_id: str,
+    printify_product_id: str,
+    preset_id: Optional[str] = None,
+) -> None:
+    """Link a product to a calendar event."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO calendar_event_products (event_id, printify_product_id, preset_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            """,
+            event_id, printify_product_id, preset_id,
+        )
+
+
+async def get_calendar_event_products(event_id: str) -> List[Dict[str, Any]]:
+    """Get products linked to a specific event."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT event_id, printify_product_id, preset_id, created_at
+            FROM calendar_event_products WHERE event_id = $1
+            ORDER BY created_at DESC
+            """,
+            event_id,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_calendar_product_counts() -> Dict[str, int]:
+    """Get product count per event_id."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT event_id, COUNT(*) as count FROM calendar_event_products GROUP BY event_id"
+        )
+        return {row["event_id"]: row["count"] for row in rows}

@@ -28,6 +28,7 @@ export default function Header() {
     { href: '/history', label: 'History' },
     { href: '/shop', label: 'Shop' },
     { href: '/schedule', label: 'Schedule' },
+    { href: '/calendar', label: 'Calendar' },
     { href: '/analytics', label: 'Analytics' },
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/providers', label: 'Providers' },

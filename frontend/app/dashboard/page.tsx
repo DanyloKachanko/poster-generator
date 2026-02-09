@@ -6,9 +6,11 @@ import Link from 'next/link';
 import {
   getDashboardStats,
   getPresets,
+  getCalendarEvents,
   DashboardStats,
   PosterPreset,
   PresetCategory,
+  SeasonalEvent,
 } from '@/lib/api';
 
 export default function DashboardPage() {
@@ -18,6 +20,7 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState<Record<string, PresetCategory>>({});
   const [usedPresetIds, setUsedPresetIds] = useState<Set<string>>(new Set());
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [calendarEvents, setCalendarEvents] = useState<SeasonalEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [presetsLoading, setPresetsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +39,16 @@ export default function DashboardPage() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setPresetsLoading(false));
+
+    getCalendarEvents(90)
+      .then((data) => {
+        // Show only active/soon events, max 3
+        const active = data.events.filter((e) =>
+          ['must_be_live', 'creating', 'soon'].includes(e.status)
+        );
+        setCalendarEvents(active.slice(0, 3));
+      })
+      .catch(() => {});
   }, []);
 
   const handleCategoryFilter = (category: string) => {
@@ -265,6 +278,65 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upcoming Events */}
+      {calendarEvents.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-xl p-5 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-100">Upcoming Events</h2>
+            <Link
+              href="/calendar"
+              className="text-xs text-accent hover:text-accent-hover transition-colors"
+            >
+              View all →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {calendarEvents.map((ev) => {
+              const statusColors: Record<string, string> = {
+                must_be_live: 'text-orange-400 bg-orange-500/15',
+                creating: 'text-yellow-400 bg-yellow-500/15',
+                soon: 'text-blue-400 bg-blue-500/15',
+              };
+              const statusLabels: Record<string, string> = {
+                must_be_live: 'Must Be Live',
+                creating: 'Creating',
+                soon: 'Soon',
+              };
+              const cls = statusColors[ev.status] || 'text-gray-400 bg-gray-500/15';
+              return (
+                <Link
+                  key={ev.id}
+                  href="/calendar"
+                  className="flex items-center gap-3 p-3 rounded-lg bg-dark-bg border border-dark-border hover:border-gray-600 transition-colors"
+                >
+                  <span className="text-xl flex-shrink-0">{ev.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-200 truncate">{ev.name}</span>
+                      <span className={`text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded ${cls}`}>
+                        {statusLabels[ev.status] || ev.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-500">
+                        {new Date(ev.event_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span className="text-xs text-gray-600">·</span>
+                      <span className="text-xs text-gray-500">
+                        {ev.presets_used}/{ev.presets_total} presets
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`text-xs tabular-nums ${ev.days_until <= 14 ? 'text-orange-400' : 'text-gray-500'}`}>
+                    {ev.days_until}d
+                  </span>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}

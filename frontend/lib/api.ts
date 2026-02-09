@@ -1213,3 +1213,84 @@ export async function removeFromSchedule(productId: string): Promise<void> {
     throw new Error(error.detail || 'Failed to remove from schedule');
   }
 }
+
+// === Seasonal Calendar types and functions ===
+
+export interface SeasonalEvent {
+  id: string;
+  name: string;
+  month: number;
+  day: number;
+  icon: string;
+  color: string;
+  lead_time_weeks: number;
+  live_by_weeks: number;
+  description: string;
+  preset_categories: string[];
+  preset_ids: string[];
+  seasonal_tags: string[];
+  priority: number;
+  event_date: string;
+  year: number;
+  start_creating: string;
+  must_be_live: string;
+  status: 'past' | 'must_be_live' | 'creating' | 'soon' | 'upcoming';
+  days_until: number;
+  product_count: number;
+  presets_used: number;
+  presets_total: number;
+}
+
+export interface CalendarEventPreset {
+  id: string;
+  name: string;
+  category: string;
+  category_name: string;
+  difficulty: string;
+  trending_score: number;
+  tags: string[];
+  is_used: boolean;
+}
+
+export async function getCalendarEvents(days: number = 90): Promise<{ events: SeasonalEvent[] }> {
+  const response = await fetch(`${getApiUrl()}/calendar/upcoming?days=${days}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch calendar events');
+  }
+  return response.json();
+}
+
+export async function getCalendarEvent(eventId: string): Promise<SeasonalEvent> {
+  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch calendar event');
+  }
+  return response.json();
+}
+
+export async function getCalendarEventPresets(eventId: string): Promise<{ presets: CalendarEventPreset[] }> {
+  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}/presets`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch event presets');
+  }
+  return response.json();
+}
+
+export async function trackCalendarProduct(
+  eventId: string,
+  printifyProductId: string,
+  presetId?: string
+): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}/track`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      printify_product_id: printifyProductId,
+      preset_id: presetId,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to track product' }));
+    throw new Error(error.detail || 'Failed to track product');
+  }
+}
