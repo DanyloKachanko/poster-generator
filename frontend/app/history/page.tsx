@@ -47,7 +47,8 @@ export default function HistoryPage() {
       page * limit,
       selectedStatus || undefined,
       selectedStyle || undefined,
-      showArchived
+      showArchived,
+      'mockup'  // Exclude mockup generations from poster history
     )
       .then(setHistory)
       .catch((err) => setError(err.message))

@@ -30,7 +30,6 @@ SIZE_INCHES = {
     "12x16": (12, 16),
     "16x20": (16, 20),
     "18x24": (18, 24),
-    "24x36": (24, 36),
 }
 
 
@@ -184,7 +183,7 @@ def print_analysis(image_width: int, image_height: int):
     print(f"\nImage: {image_width} x {image_height} px\n")
     print(f"{'Size':<10} {'DPI':<10} {'Quality':<15} {'Action'}")
     print("-" * 70)
-    for key in ["8x10", "11x14", "12x16", "16x20", "18x24", "24x36"]:
+    for key in ["8x10", "11x14", "12x16", "16x20", "18x24"]:
         if key not in results:
             continue
         r = results[key]

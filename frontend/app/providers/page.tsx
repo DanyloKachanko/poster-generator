@@ -8,7 +8,7 @@ import {
   ProviderComparison,
 } from '@/lib/api';
 
-const SIZES = ['8x10', '11x14', '12x16', '16x20', '18x24', '24x36'];
+const SIZES = ['8x10', '11x14', '12x16', '16x20', '18x24'];
 const DEFAULT_SIZE = '18x24';
 
 const RECOMMENDATION_LABELS: Record<string, { label: string; icon: string }> = {

@@ -7,7 +7,6 @@ PRINTIFY_BASE_COSTS = {
     "12x16": 8.20,
     "16x20": 10.50,
     "18x24": 12.80,
-    "24x36": 18.50,
 }
 
 # Shipping costs (US domestic, approximate)
@@ -17,7 +16,6 @@ SHIPPING_COSTS = {
     "12x16": 5.50,
     "16x20": 6.00,
     "18x24": 7.00,
-    "24x36": 9.00,
 }
 
 # Etsy fees: 6.5% transaction + 3% + $0.25 payment processing
@@ -67,6 +65,29 @@ def calculate_price(
         "profit": round(profit, 2),
         "margin_percent": round(actual_margin * 100, 1),
     }
+
+
+def get_minimum_price(size: str) -> float:
+    """Get minimum allowed retail price for a size (below this = guaranteed loss).
+
+    Covers: Printify base cost + shipping + Etsy fees + 15% safety margin.
+    Uses conservative defaults for unknown sizes.
+    """
+    base_cost = PRINTIFY_BASE_COSTS.get(size, 15.00)
+    shipping = SHIPPING_COSTS.get(size, 7.00)
+    total_cost = base_cost + shipping + ETSY_LISTING_FEE
+    # price * (1 - etsy_fee - min_margin) >= total_cost
+    min_price = total_cost / (1 - ETSY_FEE_PERCENT - 0.15)
+    return round(min_price) + 0.99
+
+
+def enforce_minimum_price(size: str, price_cents: int) -> int:
+    """Ensure price (in cents) is not below minimum for a size.
+
+    Returns corrected price in cents.
+    """
+    min_price_cents = int(get_minimum_price(size) * 100)
+    return max(price_cents, min_price_cents)
 
 
 def get_all_prices(strategy: str = "standard") -> dict:

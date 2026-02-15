@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import {
-  generateListing,
+  aiFillListing,
   regenerateTitle,
   regenerateDescription,
   createFullProduct,
+  addToSchedule,
   ListingData,
   PriceInfo,
   CreateFullProductResponse,
@@ -40,19 +41,22 @@ export default function ListingPanel({
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [createdProduct, setCreatedProduct] = useState<CreateFullProductResponse | null>(null);
   const [publishToEtsy, setPublishToEtsy] = useState(false);
+  const [schedulingProduct, setSchedulingProduct] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null);
 
   const handleGenerate = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await generateListing({
-        style: style || 'abstract',
-        preset: preset || 'general',
-        description: imageDescription,
+      const aiResult = await aiFillListing({ image_url: imageUrl });
+      setListing({
+        title: aiResult.title,
+        tags: aiResult.tags,
+        tags_string: aiResult.tags.join(', '),
+        description: aiResult.description,
       });
-      setListing(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Generation failed');
+      setError(err instanceof Error ? err.message : 'AI Fill failed');
     } finally {
       setLoading(false);
     }
@@ -103,12 +107,31 @@ export default function ListingPanel({
         description: imageDescription,
         image_url: imageUrl,
         publish_to_etsy: publishToEtsy,
+        listing_title: listing?.title,
+        listing_tags: listing?.tags,
+        listing_description: listing?.description,
       });
       setCreatedProduct(result);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create product');
     } finally {
       setCreatingProduct(false);
+    }
+  };
+
+  const handleAddToSchedule = async () => {
+    if (!createdProduct) return;
+    setSchedulingProduct(true);
+    try {
+      const result = await addToSchedule(
+        createdProduct.printify_product_id,
+        createdProduct.title
+      );
+      setScheduledAt(result.scheduled_publish_at);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to schedule');
+    } finally {
+      setSchedulingProduct(false);
     }
   };
 
@@ -185,6 +208,35 @@ export default function ListingPanel({
                   </svg>
                   View in Shop
                 </Link>
+                {!createdProduct.published && !scheduledAt && (
+                  <button
+                    onClick={handleAddToSchedule}
+                    disabled={schedulingProduct}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-600/15 text-yellow-400 border border-yellow-600/30 rounded-lg font-medium hover:bg-yellow-600/25 transition-colors text-sm disabled:opacity-50"
+                  >
+                    {schedulingProduct ? (
+                      <span className="flex items-center gap-2">
+                        <span className="animate-spin w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full" />
+                        Scheduling...
+                      </span>
+                    ) : (
+                      <>
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                        </svg>
+                        Add to Publish Schedule
+                      </>
+                    )}
+                  </button>
+                )}
+                {scheduledAt && (
+                  <div className="text-center text-xs text-yellow-400/70 py-1">
+                    Scheduled for {new Date(scheduledAt).toLocaleString('en-US', {
+                      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                      timeZone: 'America/New_York', timeZoneName: 'short',
+                    })}
+                  </div>
+                )}
                 <button
                   onClick={onClose}
                   className="w-full px-4 py-2.5 border border-dark-border rounded-lg text-gray-400 hover:text-gray-200 transition-colors text-sm"
@@ -197,9 +249,9 @@ export default function ListingPanel({
             /* === GENERATE STATE === */
             <div className="space-y-4">
               <div className="text-sm text-gray-400">
-                <p>Generate SEO-optimized listing and create a Printify product:</p>
+                <p>AI analyzes your poster image to generate unique SEO listing:</p>
                 <ul className="mt-2 ml-4 list-disc text-gray-500 space-y-1">
-                  <li>AI-generated title, tags &amp; description</li>
+                  <li>Vision-based title, tags &amp; description from image</li>
                   <li>Auto-upload image to Printify</li>
                   <li>Set up all poster sizes with pricing</li>
                   <li>Optional: publish directly to Etsy</li>
@@ -220,10 +272,10 @@ export default function ListingPanel({
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="animate-spin w-4 h-4 border-2 border-dark-bg border-t-transparent rounded-full" />
-                    Generating listing...
+                    Analyzing image...
                   </span>
                 ) : (
-                  'Generate Listing Preview'
+                  'AI Fill from Image'
                 )}
               </button>
             </div>
@@ -397,7 +449,7 @@ export default function ListingPanel({
                         <tbody>
                           {Object.entries(listing.pricing)
                             .sort(([a], [b]) => {
-                              const sizeOrder = ['8x10', '11x14', '12x16', '16x20', '18x24', '24x36'];
+                              const sizeOrder = ['8x10', '11x14', '12x16', '16x20', '18x24'];
                               return sizeOrder.indexOf(a) - sizeOrder.indexOf(b);
                             })
                             .map(([size, info]) => (

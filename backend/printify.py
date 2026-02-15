@@ -47,7 +47,6 @@ class PrintifyAPI:
         "12x16": 101110,
         "16x20": 43141,
         "18x24": 43144,
-        "24x36": 43150,
     }
 
     # Sizes safe to sell without upscaling (Leonardo generates ~1024x1280).
@@ -184,12 +183,15 @@ class PrintifyAPI:
                     timeout=30.0,
                 )
 
-            return PrintifyProduct(
-                id=product_id,
-                title=data["title"],
-                status=data.get("status", "draft"),
-                variants=data.get("variants", []),
-            )
+        # Sanitize: disable unknown variants, enforce minimum prices
+        await self.sanitize_product_variants(product_id, data)
+
+        return PrintifyProduct(
+            id=product_id,
+            title=data["title"],
+            status=data.get("status", "draft"),
+            variants=data.get("variants", []),
+        )
 
     async def publish_product(self, product_id: str) -> dict:
         """Publish product to connected store (Etsy)."""
@@ -292,6 +294,68 @@ class PrintifyAPI:
             return response.json()
 
 
+    async def sanitize_product_variants(
+        self,
+        product_id: str,
+        product_data: dict = None,
+    ) -> dict:
+        """Disable unknown variants and enforce minimum prices on a product.
+
+        Any variant whose ID is not in SIZE_VARIANT_IDS gets disabled.
+        Known variants get their price checked against the pricing floor.
+        Returns a summary of what was fixed.
+        """
+        from pricing import enforce_minimum_price
+
+        if product_data is None:
+            product_data = await self.get_product(product_id)
+
+        known_vids = set(self.SIZE_VARIANT_IDS.values())
+        vid_to_size = {vid: sk for sk, vid in self.SIZE_VARIANT_IDS.items()}
+        all_variants = product_data.get("variants", [])
+
+        sanitized = []
+        disabled_unknown = 0
+        price_bumped = 0
+
+        for v in all_variants:
+            vid = v["id"]
+            current_price = v.get("price", 0)
+            current_enabled = v.get("is_enabled", False)
+
+            if vid not in known_vids:
+                # Unknown variant: always disable
+                if current_enabled:
+                    disabled_unknown += 1
+                sanitized.append({
+                    "id": vid,
+                    "price": current_price,
+                    "is_enabled": False,
+                })
+            else:
+                # Known variant: enforce minimum price
+                size_key = vid_to_size[vid]
+                safe_price = enforce_minimum_price(size_key, current_price)
+                if safe_price > current_price:
+                    price_bumped += 1
+                sanitized.append({
+                    "id": vid,
+                    "price": safe_price,
+                    "is_enabled": current_enabled,
+                })
+
+        if disabled_unknown > 0 or price_bumped > 0:
+            await self.update_product(
+                product_id=product_id,
+                variants=sanitized,
+            )
+
+        return {
+            "total_variants": len(all_variants),
+            "disabled_unknown": disabled_unknown,
+            "price_bumped": price_bumped,
+        }
+
     async def upload_image_base64(self, image_bytes: bytes, filename: str) -> dict:
         """Upload image to Printify from raw bytes (base64 encoded).
 
@@ -305,7 +369,7 @@ class PrintifyAPI:
         if img.mode == "RGBA":
             img = img.convert("RGB")
         jpeg_buf = _io.BytesIO()
-        img.save(jpeg_buf, format="JPEG", quality=95, optimize=True)
+        img.save(jpeg_buf, format="JPEG", quality=95, optimize=True, dpi=(300, 300))
         jpeg_bytes = jpeg_buf.getvalue()
 
         b64 = base64.b64encode(jpeg_bytes).decode("utf-8")
@@ -398,12 +462,15 @@ class PrintifyAPI:
                     timeout=30.0,
                 )
 
-            return PrintifyProduct(
-                id=product_id,
-                title=data["title"],
-                status=data.get("status", "draft"),
-                variants=data.get("variants", []),
-            )
+        # Sanitize: disable unknown variants, enforce minimum prices
+        await self.sanitize_product_variants(product_id, data)
+
+        return PrintifyProduct(
+            id=product_id,
+            title=data["title"],
+            status=data.get("status", "draft"),
+            variants=data.get("variants", []),
+        )
 
     async def disable_variants(
         self,
@@ -436,11 +503,14 @@ def create_variants_from_prices(prices: dict, enabled_sizes: set = None) -> List
     if enabled_sizes is None:
         enabled_sizes = PrintifyAPI.ENABLED_SIZES
 
+    from pricing import enforce_minimum_price
+
     for size, price_info in prices.items():
         variant_id = PrintifyAPI.SIZE_VARIANT_IDS.get(size)
         if variant_id:
             is_enabled = size in enabled_sizes
             price_cents = int(price_info["recommended_price"] * 100)
+            price_cents = enforce_minimum_price(size, price_cents)
             variants.append(
                 PrintifyVariant(
                     variant_id=variant_id,

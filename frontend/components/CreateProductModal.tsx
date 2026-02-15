@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ImageInfo,
   PosterPreset,
   PriceInfo,
-  ListingData,
   DpiSizeAnalysis,
-  generateListing,
+  aiFillListing,
   getPricing,
   analyzeDpi,
   createFullProduct,
+  addToSchedule,
   CreateFullProductResponse,
 } from '@/lib/api';
 
@@ -18,6 +18,7 @@ interface CreateProductModalProps {
   image: ImageInfo;
   preset: PosterPreset | null;
   onClose: () => void;
+  autoFill?: boolean;
 }
 
 type Step = 'editing' | 'creating' | 'success' | 'error';
@@ -26,6 +27,7 @@ export default function CreateProductModal({
   image,
   preset,
   onClose,
+  autoFill = false,
 }: CreateProductModalProps) {
   const [step, setStep] = useState<Step>('editing');
   const [title, setTitle] = useState('');
@@ -40,6 +42,8 @@ export default function CreateProductModal({
   const [error, setError] = useState<string | null>(null);
   const [dpiAnalysis, setDpiAnalysis] = useState<Record<string, DpiSizeAnalysis>>({});
   const [upscaleBackend, setUpscaleBackend] = useState<string>('');
+  const [schedulingProduct, setSchedulingProduct] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState<string | null>(null);
 
   // Load pricing, DPI analysis, and pre-fill from preset
   useEffect(() => {
@@ -66,6 +70,15 @@ export default function CreateProductModal({
     }
   }, []);
 
+  // Auto-fill when DPI analysis is ready
+  const autoFillTriggered = useRef(false);
+  useEffect(() => {
+    if (autoFill && Object.keys(dpiAnalysis).length > 0 && !autoFillTriggered.current && !title) {
+      autoFillTriggered.current = true;
+      handleAIFill();
+    }
+  }, [autoFill, dpiAnalysis]);
+
   // Reload pricing when strategy changes
   useEffect(() => {
     getPricing(pricingStrategy)
@@ -81,21 +94,23 @@ export default function CreateProductModal({
     return `Beautiful ${p.name.toLowerCase()} wall art print. Perfect for adding a touch of elegance to any room.\n\nPrinted on premium matte paper with archival inks for lasting quality. Available in multiple sizes to fit your space.\n\nIdeal for living room, bedroom, office, or as a thoughtful gift.`;
   };
 
-  const handleGenerateWithAI = async () => {
-    if (!preset) return;
+  const handleAIFill = async () => {
     setIsGeneratingListing(true);
     setError(null);
     try {
-      const listing: ListingData = await generateListing({
-        style: preset.category,
-        preset: preset.id,
-        description: preset.prompt,
+      // Compute enabled sizes from DPI analysis (only sellable sizes)
+      const enabledSizes = Object.entries(dpiAnalysis)
+        .filter(([, dpi]) => dpi.is_sellable)
+        .map(([key]) => key);
+      const result = await aiFillListing({
+        image_url: image.url,
+        enabled_sizes: enabledSizes.length > 0 ? enabledSizes : undefined,
       });
-      setTitle(listing.title);
-      setDescription(listing.description);
-      setTags(listing.tags);
+      setTitle(result.title);
+      setDescription(result.description);
+      setTags(result.tags);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate listing');
+      setError(err instanceof Error ? err.message : 'AI Fill failed');
     } finally {
       setIsGeneratingListing(false);
     }
@@ -137,12 +152,28 @@ export default function CreateProductModal({
         image_url: image.url,
         pricing_strategy: pricingStrategy,
         publish_to_etsy: publishToEtsy,
+        listing_title: title || undefined,
+        listing_tags: tags.length > 0 ? tags : undefined,
+        listing_description: description || undefined,
       });
       setResult(response);
       setStep('success');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create product');
       setStep('error');
+    }
+  };
+
+  const handleAddToSchedule = async () => {
+    if (!result) return;
+    setSchedulingProduct(true);
+    try {
+      const schedResult = await addToSchedule(result.printify_product_id, result.title);
+      setScheduledAt(schedResult.scheduled_publish_at);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to schedule');
+    } finally {
+      setSchedulingProduct(false);
     }
   };
 
@@ -232,27 +263,30 @@ export default function CreateProductModal({
                   />
                   <p className="text-[10px] text-gray-600 mt-1">{title.length}/140 characters</p>
                 </div>
-                {preset && (
-                  <button
-                    onClick={handleGenerateWithAI}
-                    disabled={isGeneratingListing}
-                    className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-                  >
-                    {isGeneratingListing ? (
-                      <>
-                        <span className="animate-spin inline-block w-3 h-3 border border-purple-400 border-t-transparent rounded-full" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                        </svg>
-                        Generate with AI
-                      </>
-                    )}
-                  </button>
-                )}
+                <button
+                  onClick={handleAIFill}
+                  disabled={isGeneratingListing || Object.keys(dpiAnalysis).length === 0}
+                  className="w-full px-3 py-2 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 disabled:opacity-50 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                >
+                  {isGeneratingListing ? (
+                    <>
+                      <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full" />
+                      Analyzing image...
+                    </>
+                  ) : Object.keys(dpiAnalysis).length === 0 ? (
+                    <>
+                      <span className="animate-spin inline-block w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full" />
+                      Loading DPI...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                      </svg>
+                      AI Fill from Image
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
@@ -492,6 +526,37 @@ export default function CreateProductModal({
                 <p className="text-xs text-gray-400 mt-0.5 font-mono">{result.printify_product_id}</p>
               </div>
             </div>
+
+            {/* Schedule button for draft products */}
+            {!result.published && !scheduledAt && (
+              <button
+                onClick={handleAddToSchedule}
+                disabled={schedulingProduct}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-yellow-600/15 text-yellow-400 border border-yellow-600/30 rounded-lg font-medium hover:bg-yellow-600/25 transition-colors text-sm disabled:opacity-50"
+              >
+                {schedulingProduct ? (
+                  <>
+                    <span className="animate-spin w-4 h-4 border-2 border-yellow-400 border-t-transparent rounded-full" />
+                    Scheduling...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+                    </svg>
+                    Add to Publish Schedule
+                  </>
+                )}
+              </button>
+            )}
+            {scheduledAt && (
+              <div className="text-center text-xs text-yellow-400/70 py-1">
+                Scheduled for {new Date(scheduledAt).toLocaleString('en-US', {
+                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                  timeZone: 'America/New_York', timeZoneName: 'short',
+                })}
+              </div>
+            )}
           </div>
         )}
 

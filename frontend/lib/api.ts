@@ -1,5 +1,5 @@
 // API URL: prefer NEXT_PUBLIC_API_URL env var, fall back to current hostname
-function getApiUrl(): string {
+export function getApiUrl(): string {
   if (typeof window !== 'undefined') {
     const envUrl = process.env.NEXT_PUBLIC_API_URL;
     if (envUrl) return envUrl;
@@ -215,13 +215,15 @@ export async function getHistory(
   offset: number = 0,
   status?: string,
   style?: string,
-  archived: boolean = false
+  archived: boolean = false,
+  excludeStyle?: string
 ): Promise<HistoryResponse> {
   const params = new URLSearchParams();
   params.set('limit', limit.toString());
   params.set('offset', offset.toString());
   if (status) params.set('status', status);
   if (style) params.set('style', style);
+  if (excludeStyle) params.set('exclude_style', excludeStyle);
   if (archived) params.set('archived', 'true');
 
   const response = await fetch(`${getApiUrl()}/history?${params}`);
@@ -577,6 +579,10 @@ export interface CreateFullProductRequest {
   image_url: string;
   pricing_strategy?: string;
   publish_to_etsy?: boolean;
+  // Pre-generated listing data (skips AI re-generation on backend)
+  listing_title?: string;
+  listing_tags?: string[];
+  listing_description?: string;
 }
 
 export interface DpiSizeAnalysis {
@@ -641,6 +647,17 @@ export interface AnalyticsTotals {
   total_favorites: number;
   total_orders: number;
   total_revenue_cents: number;
+  total_products: number;
+  live_products: number;
+  draft_products: number;
+  deleted_products: number;
+  products_with_views: number;
+  products_no_views: number;
+  avg_views: number;
+  avg_favorites: number;
+  fav_rate: number;
+  best_performer: string | null;
+  best_performer_views: number;
 }
 
 export interface AnalyticsResponse {
@@ -752,6 +769,323 @@ export async function disconnectEtsy(): Promise<void> {
   if (!response.ok) {
     throw new Error('Failed to disconnect Etsy');
   }
+}
+
+// === Etsy Listing Management ===
+
+export interface EtsyListingImage {
+  listing_image_id: number;
+  url_570xN: string;
+  url_fullxfull: string;
+  rank: number;
+}
+
+export interface EtsyListing {
+  listing_id: number;
+  title: string;
+  description: string;
+  tags: string[];
+  materials: string[];
+  state: string;
+  views: number;
+  num_favorers: number;
+  price: { amount: number; divisor: number; currency_code: string };
+  url: string;
+  images?: EtsyListingImage[];
+  creation_timestamp: number;
+  last_modified_timestamp: number;
+  who_made: string;
+  when_made: string;
+  is_supply: boolean;
+  shop_section_id: number | null;
+  shipping_profile_id: number | null;
+  should_auto_renew: boolean;
+  taxonomy_id: number | null;
+}
+
+export interface EtsyListingsResponse {
+  listings: EtsyListing[];
+  count: number;
+  shop_id: string;
+}
+
+export interface UpdateEtsyListingPayload {
+  title?: string;
+  tags?: string[];
+  description?: string;
+  materials?: string[];
+  who_made?: string;
+  when_made?: string;
+  is_supply?: boolean;
+  shop_section_id?: number;
+  shipping_profile_id?: number;
+  should_auto_renew?: boolean;
+  primary_color?: string;
+  secondary_color?: string;
+}
+
+export const ETSY_COLORS = [
+  'Beige', 'Black', 'Blue', 'Bronze', 'Brown', 'Clear', 'Copper', 'Gold',
+  'Gray', 'Green', 'Orange', 'Pink', 'Purple', 'Rainbow', 'Red',
+  'Rose gold', 'Silver', 'White', 'Yellow',
+] as const;
+
+export interface EtsyShopSection {
+  shop_section_id: number;
+  title: string;
+  rank: number;
+  active_listing_count: number;
+}
+
+export interface EtsyShippingProfile {
+  shipping_profile_id: number;
+  title: string;
+  min_processing_days: number;
+  max_processing_days: number;
+}
+
+export async function getEtsyShopSections(): Promise<{ results: EtsyShopSection[] }> {
+  const response = await fetch(`${getApiUrl()}/etsy/shop-sections`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch sections' }));
+    throw new Error(error.detail || 'Failed to fetch sections');
+  }
+  return response.json();
+}
+
+export async function getEtsyShippingProfiles(): Promise<{ results: EtsyShippingProfile[] }> {
+  const response = await fetch(`${getApiUrl()}/etsy/shipping-profiles`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch profiles' }));
+    throw new Error(error.detail || 'Failed to fetch profiles');
+  }
+  return response.json();
+}
+
+export interface BulkSeoResult {
+  total: number;
+  updated: number;
+  failed: number;
+  results: {
+    listing_id: string;
+    status: 'updated' | 'error';
+    old_title?: string;
+    new_title?: string;
+    new_tags?: string[];
+    error?: string;
+  }[];
+}
+
+export async function getEtsyListings(): Promise<EtsyListingsResponse> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch Etsy listings' }));
+    throw new Error(error.detail || 'Failed to fetch Etsy listings');
+  }
+  return response.json();
+}
+
+export async function updateEtsyListing(
+  listingId: string,
+  payload: UpdateEtsyListingPayload
+): Promise<EtsyListing> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update listing' }));
+    throw new Error(error.detail || 'Failed to update listing');
+  }
+  return response.json();
+}
+
+export async function getEtsyListingProperties(
+  listingId: string
+): Promise<{ colors: { primary_color: string | null; secondary_color: string | null } }> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/properties`);
+  if (!response.ok) return { colors: { primary_color: null, secondary_color: null } };
+  return response.json();
+}
+
+export async function updateEtsyImagesAltTexts(
+  listingId: string,
+  altTexts: string[]
+): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images/alt-texts`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ alt_texts: altTexts }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update alt texts' }));
+    throw new Error(error.detail || 'Failed to update alt texts');
+  }
+}
+
+// === Etsy Listing Image Management ===
+
+export async function getEtsyListingImages(
+  listingId: string
+): Promise<{ count: number; results: EtsyListingImage[] }> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch images' }));
+    throw new Error(error.detail || 'Failed to fetch images');
+  }
+  return response.json();
+}
+
+export async function uploadEtsyListingImage(
+  listingId: string,
+  file: File,
+  rank?: number
+): Promise<EtsyListingImage> {
+  const formData = new FormData();
+  formData.append('image', file);
+  if (rank !== undefined) {
+    formData.append('rank', String(rank));
+  }
+  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to upload image' }));
+    throw new Error(error.detail || 'Failed to upload image');
+  }
+  return response.json();
+}
+
+export async function deleteEtsyListingImage(
+  listingId: string,
+  imageId: string
+): Promise<void> {
+  const response = await fetch(
+    `${getApiUrl()}/etsy/listings/${listingId}/images/${imageId}`,
+    { method: 'DELETE' }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete image' }));
+    throw new Error(error.detail || 'Failed to delete image');
+  }
+}
+
+export async function setEtsyListingImagePrimary(
+  listingId: string,
+  imageId: string
+): Promise<EtsyListingImage> {
+  const response = await fetch(
+    `${getApiUrl()}/etsy/listings/${listingId}/images/${imageId}/set-primary`,
+    { method: 'POST' }
+  );
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to set primary image' }));
+    throw new Error(error.detail || 'Failed to set primary image');
+  }
+  return response.json();
+}
+
+export async function bulkRegenerateSeo(listingIds: string[]): Promise<BulkSeoResult> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/bulk-seo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listing_ids: listingIds }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Bulk SEO update failed' }));
+    throw new Error(error.detail || 'Bulk SEO update failed');
+  }
+  return response.json();
+}
+
+export interface SeoSuggestion {
+  title: string;
+  tags: string[];
+  description: string;
+  tags_string: string;
+  superstar_keyword: string;
+}
+
+export async function suggestSeo(
+  title: string,
+  tags: string[],
+  description: string
+): Promise<SeoSuggestion> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/suggest-seo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, tags, description }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'SEO suggestion failed' }));
+    throw new Error(error.detail || 'SEO suggestion failed');
+  }
+  return response.json();
+}
+
+// === Printify Mockups ===
+
+export interface MockupImage {
+  src: string;
+  is_default: boolean;
+  position: string;
+  variant_ids: number[];
+  size: string;
+  camera_label: string;
+}
+
+export interface MockupProduct {
+  printify_id: string;
+  title: string;
+  etsy_listing_id: string | null;
+  etsy_url: string | null;
+  images: MockupImage[];
+}
+
+export async function getMockups(): Promise<MockupProduct[]> {
+  const response = await fetch(`${getApiUrl()}/printify/mockups`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch mockups' }));
+    throw new Error(error.detail || 'Failed to fetch mockups');
+  }
+  return response.json();
+}
+
+// === AI Fill (vision-based SEO generation) ===
+
+export interface AIFillRequest {
+  image_url: string;
+  current_title?: string;
+  niche?: string;
+  enabled_sizes?: string[];
+}
+
+export interface AIFillResponse {
+  title: string;
+  tags: string[];
+  description: string;
+  superstar_keyword: string;
+  materials: string[];
+  primary_color: string;
+  secondary_color: string;
+  alt_texts: string[];
+  validation_errors: string[];
+  is_valid: boolean;
+}
+
+export async function aiFillListing(request: AIFillRequest): Promise<AIFillResponse> {
+  const response = await fetch(`${getApiUrl()}/etsy/listings/ai-fill`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'AI Fill failed' }));
+    throw new Error(error.detail || 'AI Fill failed');
+  }
+  return response.json();
 }
 
 // Presets types and functions
@@ -878,12 +1212,68 @@ export interface DashboardStats {
   total_orders: number;
   total_revenue_cents: number;
   by_status: Record<string, number>;
+  conversion_rate: number;
+  trends_7d: {
+    views: number;
+    orders: number;
+    revenue: number;
+  };
+  daily_views: { date: string; views: number }[];
+  top_products: {
+    printify_product_id: string;
+    total_views: number;
+    total_favorites: number;
+    total_orders: number;
+    total_revenue_cents: number;
+  }[];
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
   const response = await fetch(`${getApiUrl()}/dashboard/stats`);
   if (!response.ok) {
     throw new Error('Failed to fetch dashboard stats');
+  }
+  return response.json();
+}
+
+// === Product Manager ===
+
+export interface ProductManagerItem {
+  printify_product_id: string;
+  title: string;
+  thumbnail: string | null;
+  status: string;
+  min_price: number;
+  max_price: number;
+  etsy_url: string | null;
+  etsy_listing_id: string | null;
+  total_views: number;
+  total_favorites: number;
+  total_orders: number;
+  total_revenue_cents: number;
+  etsy_title: string;
+  etsy_tags: string[];
+  etsy_description: string;
+  etsy_materials: string[];
+}
+
+export interface ProductManagerResponse {
+  products: ProductManagerItem[];
+}
+
+export async function getProductManagerData(): Promise<ProductManagerResponse> {
+  const response = await fetch(`${getApiUrl()}/products/manager`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch product manager data');
+  }
+  return response.json();
+}
+
+export async function syncEtsyOrders(): Promise<{ synced: number; date: string }> {
+  const response = await fetch(`${getApiUrl()}/etsy/sync-orders`, { method: 'POST' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Order sync failed' }));
+    throw new Error(error.detail || 'Order sync failed');
   }
   return response.json();
 }
@@ -1149,6 +1539,9 @@ export interface ScheduleSettings {
   publish_times: string[];
   timezone: string;
   enabled: number;
+  preferred_primary_camera: string;
+  default_shipping_profile_id: number | null;
+  default_shop_section_id: number | null;
   updated_at: string | null;
 }
 
@@ -1181,6 +1574,9 @@ export async function updateScheduleSettings(settings: {
   publish_times: string[];
   timezone?: string;
   enabled?: boolean;
+  preferred_primary_camera?: string;
+  default_shipping_profile_id?: number | null;
+  default_shop_section_id?: number | null;
 }): Promise<ScheduleSettings> {
   const response = await fetch(`${getApiUrl()}/schedule/settings`, {
     method: 'PUT',
@@ -1204,6 +1600,21 @@ export async function publishNow(productId: string): Promise<void> {
   }
 }
 
+export async function addToSchedule(printifyProductId: string, title: string, scheduledPublishAt?: string): Promise<ScheduledProduct> {
+  const body: Record<string, string> = { printify_product_id: printifyProductId, title };
+  if (scheduledPublishAt) body.scheduled_publish_at = scheduledPublishAt;
+  const response = await fetch(`${getApiUrl()}/schedule/add`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to add to schedule' }));
+    throw new Error(error.detail || 'Failed to add to schedule');
+  }
+  return response.json();
+}
+
 export async function removeFromSchedule(productId: string): Promise<void> {
   const response = await fetch(`${getApiUrl()}/schedule/${productId}`, {
     method: 'DELETE',
@@ -1212,6 +1623,173 @@ export async function removeFromSchedule(productId: string): Promise<void> {
     const error = await response.json().catch(() => ({ detail: 'Failed to remove from schedule' }));
     throw new Error(error.detail || 'Failed to remove from schedule');
   }
+}
+
+// === Batch scheduling + retry ===
+
+export async function addToScheduleBatch(productIds: string[]): Promise<{
+  scheduled: number;
+  failed: number;
+  results: Array<{ printify_product_id: string; title?: string; scheduled_publish_at?: string; error?: string }>;
+}> {
+  const response = await fetch(`${getApiUrl()}/schedule/add-batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_ids: productIds }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to batch schedule' }));
+    throw new Error(error.detail || 'Failed to batch schedule');
+  }
+  return response.json();
+}
+
+export async function retrySchedule(productId: string): Promise<{
+  printify_product_id: string;
+  status: string;
+  scheduled_publish_at: string;
+}> {
+  const response = await fetch(`${getApiUrl()}/schedule/retry/${productId}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to retry' }));
+    throw new Error(error.detail || 'Failed to retry');
+  }
+  return response.json();
+}
+
+// === Products (local DB) ===
+
+export interface SourceImage {
+  id: number;
+  generation_id: string;
+  url: string;
+  mockup_url: string | null;
+  mockup_status: string | null;
+}
+
+export interface TrackedProduct {
+  id: number;
+  printify_product_id: string;
+  etsy_listing_id: string | null;
+  title: string;
+  description: string | null;
+  tags: string[] | null;
+  image_url: string | null;
+  pricing_strategy: string;
+  enabled_sizes: string[] | null;
+  status: string;
+  etsy_metadata: Record<string, unknown>;
+  dovshop_product_id: string | null;
+  source_image_id: number | null;
+  source_image?: SourceImage;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getTrackedProducts(status?: string, limit: number = 50, offset: number = 0): Promise<{
+  items: TrackedProduct[];
+  total: number;
+  limit: number;
+  offset: number;
+}> {
+  const params = new URLSearchParams();
+  if (status) params.set('status', status);
+  params.set('limit', String(limit));
+  params.set('offset', String(offset));
+  const response = await fetch(`${getApiUrl()}/products?${params}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch products' }));
+    throw new Error(error.detail || 'Failed to fetch products');
+  }
+  return response.json();
+}
+
+export async function getTrackedProduct(printifyProductId: string): Promise<TrackedProduct> {
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Product not found' }));
+    throw new Error(error.detail || 'Product not found');
+  }
+  return response.json();
+}
+
+// === Product mockups ===
+
+export interface ProductMockup {
+  src: string;
+  is_default: boolean;
+  position: string;
+  variant_ids: number[];
+  camera_label: string;
+  size: string;
+}
+
+export async function getProductMockups(printifyProductId: string): Promise<{
+  printify_product_id: string;
+  title: string;
+  mockups: ProductMockup[];
+}> {
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/mockups`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch mockups' }));
+    throw new Error(error.detail || 'Failed to fetch mockups');
+  }
+  return response.json();
+}
+
+export async function setProductPrimaryMockup(printifyProductId: string, mockupUrl: string): Promise<{
+  ok: boolean;
+  etsy_listing_id: string;
+  image_id: number;
+}> {
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/set-primary-mockup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mockup_url: mockupUrl }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to set primary mockup' }));
+    throw new Error(error.detail || 'Failed to set primary mockup');
+  }
+  return response.json();
+}
+
+export async function uploadProductMockup(printifyProductId: string, file: File, rank?: number): Promise<{
+  ok: boolean;
+  etsy_listing_id: string;
+  image_id: number;
+  rank: number | null;
+}> {
+  const formData = new FormData();
+  formData.append('image', file);
+  if (rank !== undefined) formData.append('rank', String(rank));
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/upload-mockup`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to upload mockup' }));
+    throw new Error(error.detail || 'Failed to upload mockup');
+  }
+  return response.json();
+}
+
+export async function setPreferredMockup(printifyProductId: string, mockupUrl: string | null): Promise<{
+  printify_product_id: string;
+  preferred_mockup_url: string | null;
+}> {
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/preferred-mockup`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mockup_url: mockupUrl }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to set preferred mockup' }));
+    throw new Error(error.detail || 'Failed to set preferred mockup');
+  }
+  return response.json();
 }
 
 // === Seasonal Calendar types and functions ===
@@ -1293,4 +1871,768 @@ export async function trackCalendarProduct(
     const error = await response.json().catch(() => ({ detail: 'Failed to track product' }));
     throw new Error(error.detail || 'Failed to track product');
   }
+}
+
+// === Custom Mockup Generator ===
+
+export interface MockupScene {
+  name: string;
+}
+
+export interface MockupRatio {
+  name: string;
+}
+
+export interface MockupModel {
+  name: string;
+  description: string;
+}
+
+export interface MockupStyle {
+  name: string;
+  description: string;
+}
+
+export interface MockupScenesResponse {
+  scenes: Record<string, MockupScene>;
+  ratios: Record<string, MockupRatio>;
+  models: Record<string, MockupModel>;
+  styles: Record<string, MockupStyle>;
+}
+
+export async function getMockupScenes(): Promise<MockupScenesResponse> {
+  const response = await fetch(`${getApiUrl()}/mockups/scenes`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch mockup scenes');
+  }
+  return response.json();
+}
+
+export async function generateMockupScene(
+  sceneType: string,
+  ratio: string = '4:5',
+  customPrompt?: string,
+  numImages: number = 2,
+  modelId?: string,
+  style?: string
+): Promise<{ generation_id: string; status: string; scene_type: string; ratio: string; width: number; height: number }> {
+  const response = await fetch(`${getApiUrl()}/mockups/generate-scene`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scene_type: sceneType,
+      ratio,
+      custom_prompt: customPrompt || undefined,
+      num_images: numImages,
+      model_id: modelId || undefined,
+      style: style || undefined,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Scene generation failed' }));
+    throw new Error(error.detail || 'Scene generation failed');
+  }
+  return response.json();
+}
+
+// --- Mockup Templates ---
+
+export interface MockupTemplate {
+  id: number;
+  name: string;
+  scene_url: string;
+  scene_width: number;
+  scene_height: number;
+  corners: number[][]; // [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+  is_active?: boolean;
+  blend_mode?: string; // "normal" | "multiply"
+  created_at: string;
+}
+
+export async function getMockupTemplates(): Promise<MockupTemplate[]> {
+  const response = await fetch(`${getApiUrl()}/mockups/templates`);
+  if (!response.ok) throw new Error('Failed to fetch templates');
+  return response.json();
+}
+
+export async function saveMockupTemplate(
+  name: string,
+  sceneUrl: string,
+  sceneWidth: number,
+  sceneHeight: number,
+  corners: number[][],
+  blendMode: string = 'normal'
+): Promise<MockupTemplate> {
+  const response = await fetch(`${getApiUrl()}/mockups/templates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      scene_url: sceneUrl,
+      scene_width: sceneWidth,
+      scene_height: sceneHeight,
+      corners,
+      blend_mode: blendMode,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to save template' }));
+    throw new Error(error.detail || 'Failed to save template');
+  }
+  return response.json();
+}
+
+export async function deleteMockupTemplate(id: number): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/mockups/templates/${id}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to delete template');
+}
+
+export async function updateMockupTemplate(
+  id: number,
+  name: string,
+  sceneUrl: string,
+  sceneWidth: number,
+  sceneHeight: number,
+  corners: number[][],
+  blendMode: string = 'normal'
+): Promise<MockupTemplate> {
+  const response = await fetch(`${getApiUrl()}/mockups/templates/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      scene_url: sceneUrl,
+      scene_width: sceneWidth,
+      scene_height: sceneHeight,
+      corners,
+      blend_mode: blendMode,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update template' }));
+    throw new Error(error.detail || 'Failed to update template');
+  }
+  return response.json();
+}
+
+export async function uploadMockupTemplate(
+  file: File,
+  name: string,
+  sceneWidth: number,
+  sceneHeight: number,
+  corners: number[][]
+): Promise<MockupTemplate> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('name', name);
+  formData.append('scene_width', sceneWidth.toString());
+  formData.append('scene_height', sceneHeight.toString());
+  formData.append('corners', JSON.stringify(corners));
+
+  const response = await fetch(`${getApiUrl()}/mockups/templates/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to upload template' }));
+    throw new Error(error.detail || 'Failed to upload template');
+  }
+  return response.json();
+}
+
+export async function composeMockup(
+  templateId: number,
+  posterUrl: string,
+  fillMode: 'stretch' | 'fit' | 'fill' = 'fill',
+  colorGrade: string = 'none'
+): Promise<Blob> {
+  const response = await fetch(`${getApiUrl()}/mockups/compose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      template_id: templateId,
+      poster_url: posterUrl,
+      fill_mode: fillMode,
+      color_grade: colorGrade,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Composition failed' }));
+    throw new Error(error.detail || 'Composition failed');
+  }
+  return response.blob();
+}
+
+export interface DefaultTemplateResponse {
+  default_template_id: number | null;
+  template: MockupTemplate | null;
+}
+
+export async function getDefaultMockupTemplate(): Promise<DefaultTemplateResponse> {
+  const response = await fetch(`${getApiUrl()}/mockups/settings/default-template`);
+  if (!response.ok) throw new Error('Failed to get default template');
+  return response.json();
+}
+
+export async function setDefaultMockupTemplate(templateId: number): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${getApiUrl()}/mockups/settings/default-template/${templateId}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to set default template' }));
+    throw new Error(error.detail || 'Failed to set default template');
+  }
+  return response.json();
+}
+
+// === Active Templates ===
+
+export async function getActiveMockupTemplates(): Promise<{ active_templates: MockupTemplate[]; count: number }> {
+  const response = await fetch(`${getApiUrl()}/mockups/settings/active-templates`);
+  if (!response.ok) throw new Error('Failed to fetch active templates');
+  return response.json();
+}
+
+export async function toggleTemplateActive(templateId: number): Promise<{ template_id: number; is_active: boolean }> {
+  const response = await fetch(`${getApiUrl()}/mockups/templates/${templateId}/toggle-active`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to toggle template');
+  return response.json();
+}
+
+export interface ComposeAllResult {
+  previews: { template_id: number; preview_url: string }[];
+  poster_url: string;
+}
+
+export async function composeAllMockups(posterUrl: string, fillMode: string = 'fill'): Promise<ComposeAllResult> {
+  const response = await fetch(`${getApiUrl()}/mockups/compose-all`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ poster_url: posterUrl, fill_mode: fillMode }),
+  });
+  if (!response.ok) throw new Error('Failed to compose all mockups');
+  return response.json();
+}
+
+// === Mockup Packs ===
+
+export interface MockupPack {
+  id: number;
+  name: string;
+  template_count: number;
+  color_grade: string;
+  templates?: MockupTemplate[];
+  created_at: string;
+}
+
+export async function getMockupPacks(): Promise<{ packs: MockupPack[] }> {
+  const response = await fetch(`${getApiUrl()}/mockups/packs`);
+  if (!response.ok) throw new Error('Failed to fetch packs');
+  return response.json();
+}
+
+export async function getMockupPack(packId: number): Promise<MockupPack> {
+  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`);
+  if (!response.ok) throw new Error('Failed to fetch pack');
+  return response.json();
+}
+
+export async function createMockupPack(name: string, templateIds: number[] = [], colorGrade: string = 'none'): Promise<MockupPack> {
+  const response = await fetch(`${getApiUrl()}/mockups/packs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, template_ids: templateIds, color_grade: colorGrade }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to create pack' }));
+    throw new Error(error.detail || 'Failed to create pack');
+  }
+  return response.json();
+}
+
+export async function updateMockupPack(packId: number, name: string, templateIds: number[], colorGrade: string = 'none'): Promise<MockupPack> {
+  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, template_ids: templateIds, color_grade: colorGrade }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update pack' }));
+    throw new Error(error.detail || 'Failed to update pack');
+  }
+  return response.json();
+}
+
+export async function getColorGrades(): Promise<{ grades: { id: string; name: string }[] }> {
+  const response = await fetch(`${getApiUrl()}/mockups/color-grades`);
+  if (!response.ok) throw new Error('Failed to fetch color grades');
+  return response.json();
+}
+
+export async function deleteMockupPack(packId: number): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error('Failed to delete pack');
+}
+
+export async function composeByPack(posterUrl: string, packId: number, fillMode: string = 'fill'): Promise<ComposeAllResult & { pack_id: number }> {
+  const response = await fetch(`${getApiUrl()}/mockups/compose-by-pack`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ poster_url: posterUrl, pack_id: packId, fill_mode: fillMode }),
+  });
+  if (!response.ok) throw new Error('Failed to compose by pack');
+  return response.json();
+}
+
+export async function reapplyApprovedMockups(packId?: number): Promise<{ started: boolean; total: number; message: string }> {
+  const response = await fetch(`${getApiUrl()}/mockups/workflow/reapply-approved`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(packId ? { pack_id: packId } : {}),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Reapply failed' }));
+    throw new Error(error.detail || 'Reapply failed');
+  }
+  return response.json();
+}
+
+export async function getReapplyStatus(): Promise<{ running: boolean; total: number; done: number; ok: number; errors: string[] }> {
+  const response = await fetch(`${getApiUrl()}/mockups/workflow/reapply-status`);
+  if (!response.ok) throw new Error('Failed to get status');
+  return response.json();
+}
+
+// === Competitor Intelligence ===
+
+export interface CompetitorShop {
+  id: number;
+  etsy_shop_id: string;
+  shop_name: string;
+  shop_url: string;
+  icon_url: string | null;
+  total_listings: number;
+  rating: number;
+  total_reviews: number;
+  country: string | null;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompetitorSearchResult {
+  shop_id: string;
+  shop_name: string;
+  icon_url: string | null;
+  rating: number;
+  total_reviews: number;
+  listing_count: number;
+  already_tracked: boolean;
+}
+
+export interface CompetitorListing {
+  id: number;
+  competitor_id: number;
+  etsy_listing_id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  price_cents: number;
+  currency: string;
+  views: number;
+  favorites: number;
+  image_url: string | null;
+  created_at: string;
+  synced_at: string;
+}
+
+export interface CompetitorDetail extends CompetitorShop {
+  listings_count: number;
+  top_tags: string[];
+  last_snapshot_date: string | null;
+}
+
+export interface CompetitorSyncResult {
+  synced: number;
+  total_listings: number;
+  date: string;
+}
+
+export async function searchCompetitorShops(keywords: string): Promise<CompetitorSearchResult[]> {
+  const response = await fetch(`${getApiUrl()}/competitors/search?keywords=${encodeURIComponent(keywords)}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Search failed' }));
+    throw new Error(error.detail || 'Search failed');
+  }
+  const data = await response.json();
+  return data.shops;
+}
+
+export async function getCompetitors(): Promise<{ competitors: CompetitorShop[]; count: number }> {
+  const response = await fetch(`${getApiUrl()}/competitors`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch competitors');
+  }
+  return response.json();
+}
+
+export async function getCompetitor(id: number): Promise<CompetitorDetail> {
+  const response = await fetch(`${getApiUrl()}/competitors/${id}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch competitor');
+  }
+  return response.json();
+}
+
+export async function addCompetitor(etsyShopId: string): Promise<CompetitorShop> {
+  const response = await fetch(`${getApiUrl()}/competitors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ etsy_shop_id: etsyShopId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to add competitor' }));
+    throw new Error(error.detail || 'Failed to add competitor');
+  }
+  return response.json();
+}
+
+export async function deleteCompetitor(id: number): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/competitors/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete competitor' }));
+    throw new Error(error.detail || 'Failed to delete competitor');
+  }
+}
+
+export async function syncCompetitor(id: number): Promise<CompetitorSyncResult> {
+  const response = await fetch(`${getApiUrl()}/competitors/${id}/sync`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Sync failed' }));
+    throw new Error(error.detail || 'Sync failed');
+  }
+  return response.json();
+}
+
+// === Custom Presets types and functions ===
+
+export interface CustomPresetSummary {
+  id: string;
+  name: string;
+  model: string;
+  prompt_count: number;
+  generated_count: number;
+  settings: Record<string, unknown>;
+}
+
+export interface CustomPresetPrompt {
+  id: string;
+  name?: string;
+  prompt: string;
+  type?: 'single' | 'diptych';
+  generation_id: string | null;
+  images: { id: string; url: string }[];
+}
+
+export interface CustomPreset {
+  name: string;
+  model: string;
+  suffix: string;
+  negative_prompt: string;
+  settings: Record<string, unknown>;
+  prompts: CustomPresetPrompt[];
+}
+
+export interface PresetJobStatus {
+  job_id: string;
+  preset_id: string;
+  status: string;
+  total: number;
+  completed: number;
+  failed: number;
+  current_prompt_id: string | null;
+  items: Record<string, {
+    prompt_id: string;
+    prompt_name: string;
+    status: string;
+    generation_id: string | null;
+    images: { id: string; url: string }[];
+    error: string | null;
+  }>;
+}
+
+export async function getCustomPresets(): Promise<{ presets: CustomPresetSummary[] }> {
+  const response = await fetch(`${getApiUrl()}/custom-presets`);
+  if (!response.ok) throw new Error('Failed to fetch custom presets');
+  return response.json();
+}
+
+export async function getCustomPreset(presetId: string): Promise<CustomPreset> {
+  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}`);
+  if (!response.ok) throw new Error('Failed to fetch custom preset');
+  return response.json();
+}
+
+export async function uploadCustomPreset(file: File): Promise<{ preset_id: string; name: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await fetch(`${getApiUrl()}/custom-presets/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error(error.detail || 'Upload failed');
+  }
+  return response.json();
+}
+
+export async function deleteCustomPreset(presetId: string): Promise<void> {
+  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete preset');
+}
+
+export async function generatePresetPrompt(
+  presetId: string,
+  promptId: string
+): Promise<{ generation_id: string; prompt_id: string; status: string; images: { id: string; url: string }[] }> {
+  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}/generate/${promptId}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Generation failed' }));
+    throw new Error(error.detail || 'Generation failed');
+  }
+  return response.json();
+}
+
+export async function generateAllPresetPrompts(presetId: string): Promise<{ job_id: string }> {
+  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}/generate-all`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Batch start failed' }));
+    throw new Error(error.detail || 'Batch start failed');
+  }
+  return response.json();
+}
+
+export async function getPresetJobStatus(jobId: string): Promise<PresetJobStatus> {
+  const response = await fetch(`${getApiUrl()}/custom-presets/jobs/${jobId}`);
+  if (!response.ok) throw new Error('Failed to fetch job status');
+  return response.json();
+}
+
+export async function getCompetitorListings(
+  id: number,
+  sortBy: string = 'favorites',
+  sortDir: string = 'desc',
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ listings: CompetitorListing[]; total: number }> {
+  const params = new URLSearchParams({
+    sort_by: sortBy,
+    sort_dir: sortDir,
+    limit: limit.toString(),
+    offset: offset.toString(),
+  });
+  const response = await fetch(`${getApiUrl()}/competitors/${id}/listings?${params}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch competitor listings');
+  }
+  return response.json();
+}
+
+// === DovShop Integration types and functions ===
+
+export interface DovShopStatus {
+  configured: boolean;
+  connected: boolean;
+  info?: Record<string, unknown>;
+  error?: string;
+  message?: string;
+}
+
+export interface DovShopProduct {
+  id: string;
+  title: string;
+  description?: string;
+  price: number;
+  image_url: string;
+  tags?: string[];
+  created_at: string;
+  external_id?: string;
+}
+
+export interface DovShopCollection {
+  id: string;
+  name: string;
+  description: string;
+  cover_url?: string;
+  product_count?: number;
+  created_at?: string;
+}
+
+export interface PushProductToDovShopRequest {
+  printify_product_id: string;
+  title?: string;
+  description?: string;
+  price?: number;
+  tags?: string[];
+}
+
+export interface PushProductToDovShopResponse {
+  success: boolean;
+  dovshop_product_id?: string;
+  dovshop_product?: DovShopProduct;
+  message: string;
+}
+
+export interface CreateDovShopCollectionRequest {
+  name: string;
+  description?: string;
+  cover_url?: string;
+}
+
+export async function getDovShopStatus(): Promise<DovShopStatus> {
+  const response = await fetch(`${getApiUrl()}/dovshop/status`);
+  if (!response.ok) {
+    throw new Error('Failed to get DovShop status');
+  }
+  return response.json();
+}
+
+export async function getDovShopProducts(): Promise<{ products: DovShopProduct[] }> {
+  const response = await fetch(`${getApiUrl()}/dovshop/products`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch DovShop products' }));
+    throw new Error(error.detail || 'Failed to fetch DovShop products');
+  }
+  return response.json();
+}
+
+export async function pushProductToDovShop(data: PushProductToDovShopRequest): Promise<PushProductToDovShopResponse> {
+  const response = await fetch(`${getApiUrl()}/dovshop/push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to push product to DovShop' }));
+    throw new Error(error.detail || 'Failed to push product to DovShop');
+  }
+  return response.json();
+}
+
+export async function deleteDovShopProduct(productId: string): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${getApiUrl()}/dovshop/products/${productId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete product from DovShop' }));
+    throw new Error(error.detail || 'Failed to delete product from DovShop');
+  }
+  return response.json();
+}
+
+export async function getDovShopCollections(): Promise<{ collections: DovShopCollection[] }> {
+  const response = await fetch(`${getApiUrl()}/dovshop/collections`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch DovShop collections' }));
+    throw new Error(error.detail || 'Failed to fetch DovShop collections');
+  }
+  return response.json();
+}
+
+export async function createDovShopCollection(data: CreateDovShopCollectionRequest): Promise<{ success: boolean; collection: DovShopCollection; message: string }> {
+  const response = await fetch(`${getApiUrl()}/dovshop/collections`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to create DovShop collection' }));
+    throw new Error(error.detail || 'Failed to create DovShop collection');
+  }
+  return response.json();
+}
+
+export async function deleteDovShopCollection(collectionId: string): Promise<{ success: boolean; message: string }> {
+  const response = await fetch(`${getApiUrl()}/dovshop/collections/${collectionId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to delete DovShop collection' }));
+    throw new Error(error.detail || 'Failed to delete DovShop collection');
+  }
+  return response.json();
+}
+
+// --- DovShop Sync ---
+
+export interface DovShopSyncResponse {
+  total: number;
+  created: number;
+  updated: number;
+  errors: { printify_id: string; error: string }[];
+  message: string;
+}
+
+export async function syncAllToDovShop(): Promise<DovShopSyncResponse> {
+  const response = await fetch(`${getApiUrl()}/dovshop/sync`, { method: 'POST' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Sync failed' }));
+    throw new Error(error.detail || 'Sync failed');
+  }
+  return response.json();
+}
+
+// --- Source image linking ---
+
+export interface UnlinkedImage {
+  id: number;
+  generation_id: string;
+  url: string;
+  prompt: string;
+  style: string;
+  created_at: string;
+}
+
+export async function getUnlinkedImages(limit: number = 50, offset: number = 0): Promise<{ items: UnlinkedImage[]; total: number }> {
+  const response = await fetch(`${getApiUrl()}/generated-images/unlinked?limit=${limit}&offset=${offset}`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to fetch images' }));
+    throw new Error(error.detail || 'Failed to fetch images');
+  }
+  return response.json();
+}
+
+export async function linkSourceImage(printifyProductId: string, imageId: number): Promise<{ success: boolean }> {
+  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/link-image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_id: imageId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to link image' }));
+    throw new Error(error.detail || 'Failed to link image');
+  }
+  return response.json();
+}
+
+export async function syncProductsFromPrintify(): Promise<{ total: number; imported: number; skipped: number }> {
+  const response = await fetch(`${getApiUrl()}/products/sync`, { method: 'POST' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Sync failed' }));
+    throw new Error(error.detail || 'Sync failed');
+  }
+  return response.json();
 }

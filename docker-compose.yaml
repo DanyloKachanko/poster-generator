@@ -15,10 +15,12 @@ services:
     build: ./backend
     ports:
       - "${BACKEND_PORT:-8003}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql://poster:poster@db:5432/poster_generator
+      - DATABASE_URL=${DATABASE_URL}
       - LEONARDO_API_KEY=${LEONARDO_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - PRINTIFY_API_TOKEN=${PRINTIFY_API_TOKEN}
@@ -26,8 +28,8 @@ services:
       - ETSY_API_KEY=${ETSY_API_KEY}
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
-    depends_on:
-      - db
+      - DOVSHOP_API_KEY=${DOVSHOP_API_KEY}
+      - DOVSHOP_API_URL=${DOVSHOP_API_URL}
     restart: unless-stopped
 
   frontend:

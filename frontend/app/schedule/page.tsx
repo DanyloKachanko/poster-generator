@@ -8,6 +8,11 @@ import {
   updateScheduleSettings,
   publishNow,
   removeFromSchedule,
+  addToSchedule,
+  addToScheduleBatch,
+  retrySchedule,
+  getMockups,
+  MockupProduct,
   ScheduledProduct,
   ScheduleStats,
   ScheduleSettings,
@@ -62,8 +67,20 @@ export default function SchedulePage() {
   const [showSettings, setShowSettings] = useState(false);
   const [editTimes, setEditTimes] = useState<string[]>([]);
   const [editEnabled, setEditEnabled] = useState(true);
+  const [editPrimaryCamera, setEditPrimaryCamera] = useState('');
+  const [editShippingProfileId, setEditShippingProfileId] = useState('');
+  const [editShopSectionId, setEditShopSectionId] = useState('');
   const [newTime, setNewTime] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
+
+  // Add product picker state
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerProducts, setPickerProducts] = useState<MockupProduct[]>([]);
+  const [pickerLoading, setPickerLoading] = useState(false);
+  const [addingProduct, setAddingProduct] = useState<string | null>(null);
+  const [pickerDateTime, setPickerDateTime] = useState('');
+  const [selectedBatch, setSelectedBatch] = useState<Set<string>>(new Set());
+  const [batchLoading, setBatchLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -99,6 +116,9 @@ export default function SchedulePage() {
     if (settings) {
       setEditTimes(settings.publish_times || []);
       setEditEnabled(Boolean(settings.enabled));
+      setEditPrimaryCamera(settings.preferred_primary_camera || '');
+      setEditShippingProfileId(settings.default_shipping_profile_id ? String(settings.default_shipping_profile_id) : '');
+      setEditShopSectionId(settings.default_shop_section_id ? String(settings.default_shop_section_id) : '');
     }
   }, [settings]);
 
@@ -125,6 +145,86 @@ export default function SchedulePage() {
       setError(message);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleRetry = async (productId: string) => {
+    setActionLoading(productId);
+    try {
+      await retrySchedule(productId);
+      await loadData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to retry';
+      setError(message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleOpenPicker = async () => {
+    if (showPicker) {
+      setShowPicker(false);
+      return;
+    }
+    setShowPicker(true);
+    setPickerLoading(true);
+    try {
+      const mockups = await getMockups();
+      // Filter: only draft products (not on Etsy) that aren't already scheduled
+      const scheduledIds = new Set(queue.map((q) => q.printify_product_id));
+      const drafts = mockups.filter(
+        (m) => !m.etsy_listing_id && !scheduledIds.has(m.printify_id)
+      );
+      setPickerProducts(drafts);
+    } catch {
+      setPickerProducts([]);
+    } finally {
+      setPickerLoading(false);
+    }
+  };
+
+  const handleAddProduct = async (product: MockupProduct) => {
+    setAddingProduct(product.printify_id);
+    try {
+      // Convert local datetime to ISO UTC if user picked a custom time
+      let scheduledAt: string | undefined;
+      if (pickerDateTime) {
+        scheduledAt = new Date(pickerDateTime).toISOString();
+      }
+      await addToSchedule(product.printify_id, product.title, scheduledAt);
+      setShowPicker(false);
+      setPickerDateTime('');
+      await loadData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to add';
+      setError(message);
+    } finally {
+      setAddingProduct(null);
+    }
+  };
+
+  const toggleBatchSelect = (id: string) => {
+    setSelectedBatch((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBatchSchedule = async () => {
+    if (selectedBatch.size === 0) return;
+    setBatchLoading(true);
+    try {
+      await addToScheduleBatch(Array.from(selectedBatch));
+      setShowPicker(false);
+      setSelectedBatch(new Set());
+      await loadData();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to batch schedule';
+      setError(message);
+    } finally {
+      setBatchLoading(false);
     }
   };
 
@@ -165,6 +265,9 @@ export default function SchedulePage() {
       const result = await updateScheduleSettings({
         publish_times: editTimes,
         enabled: editEnabled,
+        preferred_primary_camera: editPrimaryCamera,
+        default_shipping_profile_id: editShippingProfileId ? Number(editShippingProfileId) : null,
+        default_shop_section_id: editShopSectionId ? Number(editShopSectionId) : null,
       });
       setSettings(result);
       setError(null);
@@ -208,6 +311,16 @@ export default function SchedulePage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={handleOpenPicker}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              showPicker
+                ? 'bg-accent text-dark-bg'
+                : 'bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25'
+            }`}
+          >
+            + Add Product
+          </button>
+          <button
             onClick={() => setShowSettings(!showSettings)}
             className="px-4 py-2 rounded-lg bg-dark-card border border-dark-border text-sm text-gray-300 hover:bg-dark-hover transition-colors"
           >
@@ -233,6 +346,98 @@ export default function SchedulePage() {
           >
             &#10005;
           </button>
+        </div>
+      )}
+
+      {/* Product Picker */}
+      {showPicker && (
+        <div className="bg-dark-card border border-accent/30 rounded-lg p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-200">
+              Select a draft product to schedule
+            </h2>
+            <button onClick={() => setShowPicker(false)} className="text-gray-500 hover:text-gray-300">
+              &#10005;
+            </button>
+          </div>
+          {/* Schedule time picker + batch controls */}
+          <div className="flex items-center gap-3 mb-3">
+            <label className="text-xs text-gray-400">Publish at:</label>
+            <input
+              type="datetime-local"
+              value={pickerDateTime}
+              onChange={(e) => setPickerDateTime(e.target.value)}
+              className="px-2 py-1 rounded bg-dark-bg border border-dark-border text-sm text-gray-200 focus:outline-none focus:border-accent/50"
+            />
+            {pickerDateTime && (
+              <button
+                onClick={() => setPickerDateTime('')}
+                className="text-xs text-gray-500 hover:text-gray-300"
+              >
+                Clear (use auto)
+              </button>
+            )}
+            {!pickerDateTime && (
+              <span className="text-[11px] text-gray-600">Auto: next available slot</span>
+            )}
+            {selectedBatch.size > 0 && (
+              <button
+                onClick={handleBatchSchedule}
+                disabled={batchLoading}
+                className="ml-auto px-4 py-1.5 rounded-lg bg-accent text-dark-bg text-xs font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {batchLoading ? 'Scheduling...' : `Schedule ${selectedBatch.size} Selected`}
+              </button>
+            )}
+          </div>
+
+          {pickerLoading ? (
+            <div className="flex items-center gap-2 py-6 justify-center text-gray-500 text-sm">
+              <div className="animate-spin h-5 w-5 border-2 border-accent border-t-transparent rounded-full" />
+              Loading products...
+            </div>
+          ) : pickerProducts.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-600">
+              No draft products available. All products are either on Etsy or already scheduled.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto">
+              {pickerProducts.map((p) => {
+                const thumb = p.images.find((i) => i.is_default)?.src || p.images[0]?.src;
+                const isAdding = addingProduct === p.printify_id;
+                const isSelected = selectedBatch.has(p.printify_id);
+                return (
+                  <div
+                    key={p.printify_id}
+                    className={`flex items-center gap-3 p-2 rounded-lg bg-dark-bg border transition-colors ${
+                      isSelected ? 'border-accent/60 bg-accent/5' : 'border-dark-border hover:border-accent/40'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleBatchSelect(p.printify_id)}
+                      className="flex-shrink-0 accent-[var(--accent)]"
+                    />
+                    {thumb && (
+                      <img src={thumb} alt="" className="w-10 h-14 object-cover rounded flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-gray-200 truncate">{p.title}</div>
+                      <div className="text-[10px] text-gray-600 mt-0.5">{p.images.length} mockups</div>
+                    </div>
+                    <button
+                      onClick={() => handleAddProduct(p)}
+                      disabled={isAdding}
+                      className="px-2 py-1 rounded text-[10px] font-medium bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 transition-colors disabled:opacity-50 flex-shrink-0"
+                    >
+                      {isAdding ? '...' : 'Add'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -326,6 +531,67 @@ export default function SchedulePage() {
             </div>
           </div>
 
+          {/* Primary Mockup Image */}
+          <div className="mb-4">
+            <label className="text-sm text-gray-400 mb-2 block">
+              Primary Image on Etsy (auto-set after publish)
+            </label>
+            <select
+              value={editPrimaryCamera}
+              onChange={(e) => setEditPrimaryCamera(e.target.value)}
+              className="w-64 px-3 py-1.5 rounded-lg bg-dark-bg border border-dark-border text-sm text-gray-200 focus:outline-none focus:border-accent/50"
+            >
+              <option value="">Disabled (Printify default)</option>
+              <option value="front">Front</option>
+              <option value="front-2">Front 2</option>
+              <option value="close-up">Close-up</option>
+              <option value="context-1">Context 1 (lifestyle)</option>
+              <option value="context-2">Context 2 (lifestyle)</option>
+              <option value="context-3">Context 3 (lifestyle)</option>
+              <option value="context-4">Context 4 (lifestyle)</option>
+              <option value="context-5">Context 5 (lifestyle)</option>
+            </select>
+            {editPrimaryCamera && (
+              <p className="text-[11px] text-gray-600 mt-1">
+                After publishing, the selected mockup type will be uploaded as the 1st Etsy image
+              </p>
+            )}
+          </div>
+
+          {/* Etsy Defaults */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">
+                Default Shipping Profile ID
+              </label>
+              <input
+                type="text"
+                value={editShippingProfileId}
+                onChange={(e) => setEditShippingProfileId(e.target.value.replace(/\D/g, ''))}
+                placeholder="e.g. 12345678"
+                className="w-full px-3 py-1.5 rounded-lg bg-dark-bg border border-dark-border text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent/50"
+              />
+              <p className="text-[11px] text-gray-600 mt-1">
+                Auto-applied to Etsy listings after publish
+              </p>
+            </div>
+            <div>
+              <label className="text-sm text-gray-400 mb-2 block">
+                Default Shop Section ID
+              </label>
+              <input
+                type="text"
+                value={editShopSectionId}
+                onChange={(e) => setEditShopSectionId(e.target.value.replace(/\D/g, ''))}
+                placeholder="e.g. 42000000"
+                className="w-full px-3 py-1.5 rounded-lg bg-dark-bg border border-dark-border text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-accent/50"
+              />
+              <p className="text-[11px] text-gray-600 mt-1">
+                Auto-applied to Etsy listings after publish
+              </p>
+            </div>
+          </div>
+
           {/* Enabled Toggle */}
           <div className="flex items-center gap-3 mb-4">
             <button
@@ -360,6 +626,9 @@ export default function SchedulePage() {
                 if (settings) {
                   setEditTimes(settings.publish_times || []);
                   setEditEnabled(Boolean(settings.enabled));
+                  setEditPrimaryCamera(settings.preferred_primary_camera || '');
+                  setEditShippingProfileId(settings.default_shipping_profile_id ? String(settings.default_shipping_profile_id) : '');
+                  setEditShopSectionId(settings.default_shop_section_id ? String(settings.default_shop_section_id) : '');
                 }
               }}
               className="px-4 py-2 rounded-lg bg-dark-bg border border-dark-border text-sm text-gray-400 hover:text-gray-300 transition-colors"
@@ -378,6 +647,11 @@ export default function SchedulePage() {
             {settings.enabled ? 'Publishing at ' : 'Schedule paused '}
             {settings.publish_times?.join(', ')} EST
           </span>
+          {settings.preferred_primary_camera && (
+            <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 text-xs border border-orange-500/20">
+              Primary: {settings.preferred_primary_camera}
+            </span>
+          )}
         </div>
       )}
 
@@ -512,13 +786,22 @@ export default function SchedulePage() {
                   </>
                 )}
                 {item.status === 'failed' && (
-                  <button
-                    onClick={() => handleRemove(item.printify_product_id)}
-                    disabled={actionLoading === item.printify_product_id}
-                    className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleRetry(item.printify_product_id)}
+                      disabled={actionLoading === item.printify_product_id}
+                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/30 hover:bg-yellow-500/20 transition-colors disabled:opacity-50"
+                    >
+                      {actionLoading === item.printify_product_id ? '...' : 'Retry'}
+                    </button>
+                    <button
+                      onClick={() => handleRemove(item.printify_product_id)}
+                      disabled={actionLoading === item.printify_product_id}
+                      className="px-3 py-1.5 rounded-md text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </>
                 )}
               </div>
             </div>

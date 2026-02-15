@@ -69,13 +69,16 @@ Structure:
   • Available in multiple sizes to fit your space
   • Shipped in sturdy protective packaging
   • Frame not included
-- 📐 AVAILABLE SIZES: section:
+- 📐 AVAILABLE SIZES: section (only include sizes that fit the product):
   • 8×10 inches (20×25 cm)
   • 11×14 inches (28×36 cm)
   • 12×16 inches (30×40 cm)
   • 16×20 inches (40×50 cm)
   • 18×24 inches (45×60 cm)
-  • 24×36 inches (60×90 cm)
+- ⚠️ PLEASE NOTE: section (copy exactly):
+  • This listing is for the POSTER PRINT ONLY — frame is not included
+  • Please double-check the size you are ordering before purchase
+  • Need a custom size? Message us and we'll work it out together
 - 🎁 Gift angle paragraph — who to gift it to and for what occasion.
 - Last line: "🌿 More [topic] designs available in our shop — visit DovShopDesign for the full collection." (replace emoji with topic-appropriate one)
 

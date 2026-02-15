@@ -5,10 +5,14 @@ Publishes products at configurable EST times to maximize
 Etsy's recency boost. Settings are stored in DB and reload every cycle.
 """
 
+import asyncio
 import logging
+import re
+import time
 from datetime import datetime, timedelta, timezone, time as dt_time
 from typing import List, Optional
 
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import database as db
@@ -26,13 +30,18 @@ _DEFAULT_TIMES = [dt_time(10, 0), dt_time(14, 0), dt_time(18, 0)]
 class PublishScheduler:
     CHECK_INTERVAL_MINUTES = 5
 
-    def __init__(self, printify: PrintifyAPI, notifier: NotificationService):
+    def __init__(self, printify: PrintifyAPI, notifier: NotificationService, etsy=None, listing_gen=None):
         self.printify = printify
         self.notifier = notifier
+        self.etsy = etsy
+        self.listing_gen = listing_gen
         self.scheduler = AsyncIOScheduler()
         # Cached settings — reloaded every check cycle
         self._publish_times: List[dt_time] = list(_DEFAULT_TIMES)
         self._enabled: bool = True
+        self._preferred_primary_camera: str = ""
+        self._default_shipping_profile_id: Optional[int] = None
+        self._default_shop_section_id: Optional[int] = None
 
     async def _load_settings(self):
         """Load publish times from DB. Falls back to defaults."""
@@ -45,6 +54,9 @@ class PublishScheduler:
             if times:
                 self._publish_times = sorted(times)
             self._enabled = bool(settings.get("enabled", 1))
+            self._preferred_primary_camera = settings.get("preferred_primary_camera", "")
+            self._default_shipping_profile_id = settings.get("default_shipping_profile_id")
+            self._default_shop_section_id = settings.get("default_shop_section_id")
         except Exception as e:
             logger.warning("Failed to load schedule settings: %s", e)
 
@@ -52,9 +64,10 @@ class PublishScheduler:
         """Public method to immediately reload settings (called after API update)."""
         await self._load_settings()
         logger.info(
-            "Schedule settings reloaded: times=%s, enabled=%s",
+            "Schedule settings reloaded: times=%s, enabled=%s, primary_camera=%s",
             [t.strftime("%H:%M") for t in self._publish_times],
             self._enabled,
+            self._preferred_primary_camera or "(none)",
         )
 
     async def start(self):
@@ -76,6 +89,33 @@ class PublishScheduler:
             id="daily_summary",
             replace_existing=True,
         )
+        # Description guardian — twice daily (6:00 and 18:00 UTC)
+        self.scheduler.add_job(
+            self._guard_descriptions,
+            "cron",
+            hour="6,18",
+            minute=0,
+            id="description_guardian",
+            replace_existing=True,
+        )
+        # Mockup catch-up — fill missing etsy_listing_ids and apply mockups
+        self.scheduler.add_job(
+            self._catchup_mockups,
+            "interval",
+            minutes=5,
+            id="mockup_catchup",
+            replace_existing=True,
+        )
+        # Auto SEO refresh — weekly on Mondays at 11:00 UTC (6:00 EST)
+        self.scheduler.add_job(
+            self._auto_seo_refresh,
+            "cron",
+            day_of_week="mon",
+            hour=11,
+            minute=0,
+            id="auto_seo_refresh",
+            replace_existing=True,
+        )
         self.scheduler.start()
         logger.info(
             "Publish scheduler started (checking every %d min, slots: %s EST)",
@@ -93,7 +133,11 @@ class PublishScheduler:
     # ------------------------------------------------------------------
 
     async def _calculate_next_slot(self) -> datetime:
-        """Find the next available EST publish slot."""
+        """Find the next available EST publish slot.
+
+        Uses whichever is later: the last scheduled time or now.
+        This prevents scheduling into the past after a gap.
+        """
         last_time_str = await db.get_last_scheduled_time()
         now_utc = datetime.now(timezone.utc)
 
@@ -101,7 +145,8 @@ class PublishScheduler:
             last_time = datetime.fromisoformat(last_time_str)
             if last_time.tzinfo is None:
                 last_time = last_time.replace(tzinfo=timezone.utc)
-            return self._next_slot_after(last_time)
+            reference = max(last_time, now_utc)
+            return self._next_slot_after(reference)
         else:
             return self._next_slot_after(now_utc)
 
@@ -138,7 +183,10 @@ class PublishScheduler:
             logger.warning("Failed to fetch product image for %s: %s", printify_product_id, e)
         return None
 
-    async def add_to_queue(self, printify_product_id: str, title: str, image_url: Optional[str] = None) -> dict:
+    async def add_to_queue(
+        self, printify_product_id: str, title: str,
+        image_url: Optional[str] = None, etsy_metadata: Optional[dict] = None,
+    ) -> dict:
         """Add product to schedule with auto-calculated slot."""
         await self._load_settings()
         next_slot = await self._calculate_next_slot()
@@ -149,6 +197,7 @@ class PublishScheduler:
             title=title,
             scheduled_publish_at=next_slot.isoformat(),
             image_url=image_url,
+            etsy_metadata=etsy_metadata,
         )
         slot_est = next_slot.astimezone(EST)
         logger.info(
@@ -170,6 +219,7 @@ class PublishScheduler:
         )
         title = item_info["title"] if item_info else printify_product_id
         image_url = item_info.get("image_url") if item_info else None
+        etsy_metadata = item_info.get("etsy_metadata", {}) if item_info else {}
 
         await self.printify.publish_product(printify_product_id)
         await db.update_schedule_status(printify_product_id, "published")
@@ -178,6 +228,10 @@ class PublishScheduler:
         await self.notifier.notify_published(
             title, stats["pending"], stats["next_publish_at"], image_url=image_url
         )
+
+        # Post-publish: fill Etsy metadata + set primary image in background
+        asyncio.create_task(self._post_publish_etsy_setup(printify_product_id, etsy_metadata))
+
         return {"printify_product_id": printify_product_id, "status": "published"}
 
     # ------------------------------------------------------------------
@@ -206,8 +260,12 @@ class PublishScheduler:
                     item["title"], stats["pending"], stats["next_publish_at"],
                     image_url=item.get("image_url"),
                 )
+                # Post-publish: fill Etsy metadata + set primary image
+                etsy_metadata = item.get("etsy_metadata", {})
+                asyncio.create_task(self._post_publish_etsy_setup(pid, etsy_metadata))
             except Exception as e:
                 await db.update_schedule_status(pid, "failed", str(e))
+                await db.update_product_status(pid, "failed")
                 logger.error("Failed to publish %s: %s", pid, e)
                 await self.notifier.notify_publish_failed(item["title"], str(e))
 
@@ -218,3 +276,539 @@ class PublishScheduler:
             await self.notifier.notify_daily_summary(stats)
         except Exception as e:
             logger.warning("Failed to send daily summary: %s", e)
+
+    # ------------------------------------------------------------------
+    # Post-publish: fill Etsy metadata + set preferred primary image
+    # ------------------------------------------------------------------
+
+    async def _get_etsy_token(self) -> Optional[tuple]:
+        """Get a valid Etsy access token for background use. Returns (access_token, shop_id) or None."""
+        try:
+            tokens = await db.get_etsy_tokens()
+            if not tokens:
+                return None
+
+            access_token = tokens["access_token"]
+            shop_id = tokens.get("shop_id", "")
+            if not shop_id:
+                return None
+
+            if tokens["expires_at"] < int(time.time()):
+                if not self.etsy:
+                    return None
+                new_tokens = await self.etsy.refresh_access_token(tokens["refresh_token"])
+                await db.save_etsy_tokens(
+                    access_token=new_tokens.access_token,
+                    refresh_token=new_tokens.refresh_token,
+                    expires_at=new_tokens.expires_at,
+                )
+                access_token = new_tokens.access_token
+
+            return access_token, shop_id
+        except Exception as e:
+            logger.warning("Failed to get Etsy token: %s", e)
+            return None
+
+    async def _post_publish_etsy_setup(self, printify_product_id: str, etsy_metadata: dict = None):
+        """After publishing, fill Etsy listing metadata and set preferred primary image.
+
+        Runs as a background task — polls until the Etsy listing appears,
+        then updates metadata and optionally uploads the preferred mockup.
+        """
+        if not self.etsy:
+            return
+
+        metadata = etsy_metadata or {}
+        camera = self._preferred_primary_camera
+        has_metadata = bool(metadata)
+        has_camera = bool(camera)
+
+        # Check if product has a source image (for mockup composition)
+        has_source_image = False
+        try:
+            local = await db.get_product_by_printify_id(printify_product_id)
+            if local and local.get("source_image_id"):
+                has_source_image = True
+        except Exception:
+            pass
+
+        if not has_metadata and not has_camera and not has_source_image:
+            return
+
+        logger.info("Post-publish setup for %s (metadata=%s, camera=%s, source_image=%s)...",
+                     printify_product_id, has_metadata, camera or "none",
+                     has_source_image)
+
+        # Poll for Etsy listing ID to appear (Printify publishes async)
+        etsy_listing_id = None
+        product = None
+        for attempt in range(20):  # ~5 min total
+            await asyncio.sleep(15)
+            try:
+                product = await self.printify.get_product(printify_product_id)
+                external = product.get("external") or {}
+                if external.get("id"):
+                    etsy_listing_id = str(external["id"])
+                    break
+            except Exception as e:
+                logger.debug("Poll attempt %d for %s: %s", attempt + 1, printify_product_id, e)
+
+        if not etsy_listing_id or not product:
+            logger.warning("Etsy listing not found for %s after polling", printify_product_id)
+            await db.update_product_status(printify_product_id, "published")
+            return
+
+        # Update product tracking with Etsy listing ID
+        await db.update_product_status(printify_product_id, "published", etsy_listing_id)
+
+        # Get Etsy token
+        token_data = await self._get_etsy_token()
+        if not token_data:
+            logger.warning("No Etsy token for post-publish setup (product %s)", printify_product_id)
+            return
+        access_token, shop_id = token_data
+
+        # --- Step 1: Fill Etsy metadata ---
+        if has_metadata:
+            try:
+                update_data = {}
+                if metadata.get("materials"):
+                    update_data["materials"] = metadata["materials"]
+                if metadata.get("who_made"):
+                    update_data["who_made"] = metadata["who_made"]
+                if metadata.get("when_made"):
+                    update_data["when_made"] = metadata["when_made"]
+                if "is_supply" in metadata:
+                    update_data["is_supply"] = metadata["is_supply"]
+                # Add defaults from schedule settings
+                ship_id = self._default_shipping_profile_id
+                if ship_id:
+                    update_data["shipping_profile_id"] = ship_id
+                section_id = self._default_shop_section_id
+                if section_id:
+                    update_data["shop_section_id"] = section_id
+
+                if update_data:
+                    await self.etsy.update_listing(access_token, shop_id, etsy_listing_id, update_data)
+                    logger.info("Filled Etsy metadata for %s (etsy=%s): %s",
+                                printify_product_id, etsy_listing_id, list(update_data.keys()))
+            except Exception as e:
+                logger.error("Failed to fill Etsy metadata for %s: %s", printify_product_id, e)
+
+        # --- Step 2: Fix description on Etsy (overwrite Printify's sync) ---
+        local_product = await db.get_product_by_printify_id(printify_product_id)
+        local_desc = (local_product or {}).get("description")
+        if local_desc:
+            try:
+                await asyncio.sleep(5)  # Let Printify finish its initial sync
+                await self.etsy.update_listing(
+                    access_token, shop_id, etsy_listing_id,
+                    {"description": local_desc},
+                )
+                logger.info("Fixed Etsy description for %s (etsy=%s)",
+                            printify_product_id, etsy_listing_id)
+            except Exception as e:
+                logger.error("Failed to fix Etsy description for %s: %s", printify_product_id, e)
+
+        # --- Step 3: Upload multi-mockup images ---
+        source_image_id = (local_product or {}).get("source_image_id")
+        if source_image_id:
+            try:
+                import base64 as b64_mod
+                pool = await db.get_pool()
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT url, mockup_status FROM generated_images WHERE id = $1",
+                        source_image_id,
+                    )
+
+                if not row:
+                    logger.info("No source image row for %s, skipping mockup upload", printify_product_id)
+                else:
+                    poster_url = row["url"]
+
+                    # Check for pre-composed image_mockups (only if approved)
+                    included = []
+                    if row["mockup_status"] == "approved":
+                        mockups = await db.get_image_mockups(source_image_id)
+                        included = [m for m in mockups if m.get("is_included", True)]
+
+                    if included:
+                        # Use existing pre-composed mockups
+                        mockup_entries = []
+                        for m in included:
+                            data_url = m["mockup_data"]
+                            if data_url.startswith("data:image"):
+                                mockup_bytes = b64_mod.b64decode(data_url.split(",", 1)[1])
+                            else:
+                                async with httpx.AsyncClient() as client:
+                                    resp = await client.get(data_url, timeout=30.0, follow_redirects=True)
+                                    resp.raise_for_status()
+                                    mockup_bytes = resp.content
+                            mockup_entries.append((m["id"], mockup_bytes))
+
+                        from routes.mockups import _upload_multi_images_to_etsy
+                        upload_results = await _upload_multi_images_to_etsy(
+                            access_token, shop_id, etsy_listing_id,
+                            poster_url, mockup_entries,
+                        )
+                        for ur in upload_results:
+                            if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
+                                await db.update_image_mockup_etsy_info(
+                                    ur["mockup_db_id"], ur["etsy_image_id"], ur.get("etsy_cdn_url", "")
+                                )
+                        for ur in upload_results:
+                            if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
+                                await db.set_product_preferred_mockup(printify_product_id, ur["etsy_cdn_url"])
+                                break
+                        logger.info("Uploaded %d images for %s (etsy=%s) from pre-composed mockups",
+                                    len(upload_results), printify_product_id, etsy_listing_id)
+                    else:
+                        # Compose on-the-fly — prefer default pack
+                        default_pack_str = await db.get_setting("default_pack_id")
+                        if default_pack_str:
+                            compose_pack_id = int(default_pack_str)
+                            active_templates = await db.get_pack_templates(compose_pack_id)
+                        else:
+                            compose_pack_id = await db.get_image_mockup_pack_id(source_image_id)
+                            if compose_pack_id:
+                                active_templates = await db.get_pack_templates(compose_pack_id)
+                            else:
+                                active_templates = await db.get_active_mockup_templates()
+                                compose_pack_id = None
+
+                        if active_templates:
+                            import json as json_mod
+                            for t in active_templates:
+                                if isinstance(t.get("corners"), str):
+                                    t["corners"] = json_mod.loads(t["corners"])
+
+                            from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
+                            composed = await _compose_all_templates(poster_url, active_templates)
+
+                            mockup_entries = []
+                            for rank_idx, (tid, png_bytes) in enumerate(composed, start=2):
+                                b64_str = b64_mod.b64encode(png_bytes).decode()
+                                saved = await db.save_image_mockup(
+                                    image_id=source_image_id,
+                                    template_id=tid,
+                                    mockup_data=f"data:image/png;base64,{b64_str}",
+                                    rank=rank_idx,
+                                    pack_id=compose_pack_id,
+                                )
+                                mockup_entries.append((saved["id"], png_bytes))
+
+                            upload_results = await _upload_multi_images_to_etsy(
+                                access_token, shop_id, etsy_listing_id,
+                                poster_url, mockup_entries,
+                            )
+                            for ur in upload_results:
+                                if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
+                                    await db.update_image_mockup_etsy_info(
+                                        ur["mockup_db_id"], ur["etsy_image_id"], ur.get("etsy_cdn_url", "")
+                                    )
+                            for ur in upload_results:
+                                if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
+                                    await db.set_product_preferred_mockup(printify_product_id, ur["etsy_cdn_url"])
+                                    break
+                            logger.info("Composed + uploaded %d images for %s (etsy=%s) via pack=%s",
+                                        len(upload_results), printify_product_id, etsy_listing_id, compose_pack_id)
+                        else:
+                            logger.info("No active templates for %s, skipping mockup upload",
+                                        printify_product_id)
+            except Exception as e:
+                logger.error("Failed to upload mockup images for %s: %s", printify_product_id, e)
+        else:
+            logger.info("No source_image_id for %s, skipping mockup upload", printify_product_id)
+
+    # ------------------------------------------------------------------
+    # Mockup catch-up — fill missing etsy_listing_ids + apply mockups
+    # ------------------------------------------------------------------
+
+    async def _catchup_mockups(self):
+        """Periodic check: find published products missing etsy_listing_id or mockups.
+
+        Two passes:
+        1. Fill missing etsy_listing_ids from Printify
+        2. Compose + upload mockups for products that have etsy_listing_id but no mockups on Etsy
+        """
+        import base64 as b64_mod
+        import json as json_mod
+
+        pool = await db.get_pool()
+
+        # --- Pass 1: fill missing etsy_listing_ids ---
+        async with pool.acquire() as conn:
+            missing_etsy = await conn.fetch(
+                """
+                SELECT p.id, p.printify_product_id
+                FROM products p
+                JOIN scheduled_products sp ON sp.printify_product_id = p.printify_product_id
+                WHERE sp.status = 'published'
+                  AND (p.etsy_listing_id IS NULL OR p.etsy_listing_id = '')
+                """
+            )
+
+        for row in missing_etsy:
+            pid = row["printify_product_id"]
+            try:
+                product = await self.printify.get_product(pid)
+                external = product.get("external") or {}
+                etsy_listing_id = str(external["id"]) if external.get("id") else None
+                if not etsy_listing_id:
+                    continue
+                await db.update_product_status(pid, "published", etsy_listing_id)
+                logger.info("[catchup] Filled etsy_listing_id=%s for %s", etsy_listing_id, pid)
+            except Exception as e:
+                logger.warning("[catchup] Failed to get etsy_id for %s: %s", pid, e)
+
+        # --- Pass 2: compose + upload mockups for products missing them on Etsy ---
+        async with pool.acquire() as conn:
+            needs_mockups = await conn.fetch(
+                """
+                SELECT p.id, p.printify_product_id, p.etsy_listing_id,
+                       p.source_image_id, gi.url as poster_url
+                FROM products p
+                JOIN generated_images gi ON gi.id = p.source_image_id
+                WHERE p.etsy_listing_id IS NOT NULL AND p.etsy_listing_id != ''
+                  AND NOT EXISTS (
+                      SELECT 1 FROM image_mockups im
+                      WHERE im.image_id = gi.id AND im.etsy_image_id IS NOT NULL
+                  )
+                """
+            )
+
+        if not needs_mockups:
+            return
+
+        logger.info("[catchup] Found %d products needing mockup upload", len(needs_mockups))
+
+        # Get default pack templates
+        default_pack_str = await db.get_setting("default_pack_id")
+        if not default_pack_str:
+            logger.warning("[catchup] No default pack configured, skipping")
+            return
+        pack_id = int(default_pack_str)
+        templates = await db.get_pack_templates(pack_id)
+        if not templates:
+            logger.warning("[catchup] Default pack %d has no templates", pack_id)
+            return
+        for t in templates:
+            if isinstance(t.get("corners"), str):
+                t["corners"] = json_mod.loads(t["corners"])
+
+        pack = await db.get_mockup_pack(pack_id)
+        color_grade = pack.get("color_grade", "none") if pack else "none"
+
+        # Get Etsy token
+        token_data = await self._get_etsy_token()
+        if not token_data:
+            logger.warning("[catchup] No Etsy token, skipping mockup upload")
+            return
+        access_token, shop_id = token_data
+
+        from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
+
+        for row in needs_mockups:
+            pid = row["printify_product_id"]
+            try:
+                source_image_id = row["source_image_id"]
+                etsy_listing_id = row["etsy_listing_id"]
+
+                # Check if mockups already composed in DB
+                existing = await db.get_image_mockups(source_image_id)
+                included = [m for m in existing if m.get("is_included", True)]
+
+                if included:
+                    # Mockups exist — just upload
+                    mockup_entries = []
+                    for m in included:
+                        data_url = m["mockup_data"]
+                        if data_url.startswith("data:image"):
+                            mockup_bytes = b64_mod.b64decode(data_url.split(",", 1)[1])
+                        else:
+                            async with httpx.AsyncClient() as client:
+                                resp = await client.get(data_url, timeout=30.0, follow_redirects=True)
+                                resp.raise_for_status()
+                                mockup_bytes = resp.content
+                        mockup_entries.append((m["id"], mockup_bytes))
+                else:
+                    # Compose from scratch
+                    composed = await _compose_all_templates(
+                        row["poster_url"], templates, "fill", color_grade
+                    )
+                    mockup_entries = []
+                    for rank_idx, (tid, png_bytes) in enumerate(composed, start=2):
+                        b64_str = b64_mod.b64encode(png_bytes).decode()
+                        saved = await db.save_image_mockup(
+                            image_id=source_image_id,
+                            template_id=tid,
+                            mockup_data=f"data:image/png;base64,{b64_str}",
+                            rank=rank_idx,
+                            pack_id=pack_id,
+                        )
+                        mockup_entries.append((saved["id"], png_bytes))
+
+                upload_results = await _upload_multi_images_to_etsy(
+                    access_token, shop_id, etsy_listing_id,
+                    row["poster_url"], mockup_entries,
+                )
+                for ur in upload_results:
+                    if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
+                        await db.update_image_mockup_etsy_info(
+                            ur["mockup_db_id"], ur["etsy_image_id"], ur.get("etsy_cdn_url", "")
+                        )
+                for ur in upload_results:
+                    if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
+                        await db.set_product_preferred_mockup(pid, ur["etsy_cdn_url"])
+                        break
+                logger.info("[catchup] Mockups uploaded for %s (etsy=%s)", pid, etsy_listing_id)
+            except Exception as e:
+                logger.error("[catchup] Failed mockup upload for %s: %s", pid, e)
+
+    # ------------------------------------------------------------------
+    # Description guardian — verify Etsy descriptions match local DB
+    # ------------------------------------------------------------------
+
+    async def _guard_descriptions(self):
+        """Check published products and re-apply descriptions if Printify overwrote them."""
+        if not self.etsy:
+            return
+
+        token_data = await self._get_etsy_token()
+        if not token_data:
+            return
+        access_token, shop_id = token_data
+
+        products = await db.get_all_products(status="published", limit=50)
+        items = products.get("items", [])
+        if not items:
+            return
+
+        fixed = 0
+        checked = 0
+        for product in items:
+            etsy_listing_id = product.get("etsy_listing_id")
+            local_desc = product.get("description")
+            if not etsy_listing_id or not local_desc:
+                continue
+
+            try:
+                listing = await self.etsy.get_listing(access_token, etsy_listing_id)
+                etsy_desc = listing.get("description", "")
+                checked += 1
+
+                # Compare stripped versions to avoid whitespace noise
+                if etsy_desc.strip() != local_desc.strip():
+                    await self.etsy.update_listing(
+                        access_token, shop_id, etsy_listing_id,
+                        {"description": local_desc},
+                    )
+                    fixed += 1
+                    logger.info("Guardian fixed description for %s (etsy=%s)",
+                                product["printify_product_id"], etsy_listing_id)
+
+                await asyncio.sleep(0.5)  # Rate limit
+
+            except Exception as e:
+                logger.debug("Guardian skip %s: %s", product.get("printify_product_id"), e)
+
+        if fixed > 0:
+            logger.info("Description guardian: checked %d, fixed %d", checked, fixed)
+
+    # ------------------------------------------------------------------
+    # Auto SEO refresh — regenerate SEO for underperforming listings
+    # ------------------------------------------------------------------
+
+    async def _auto_seo_refresh(self, max_items: int = 5):
+        """Weekly job: find listings with low views, regenerate SEO via Claude, update on Etsy."""
+        if not self.etsy or not self.listing_gen:
+            return
+
+        token_data = await self._get_etsy_token()
+        if not token_data:
+            return
+        access_token, shop_id = token_data
+
+        candidates = await db.get_seo_refresh_candidates(
+            min_days_since_publish=14,
+            max_views=5,
+            limit=max_items,
+        )
+        if not candidates:
+            logger.info("Auto SEO refresh: no candidates found")
+            return
+
+        logger.info("Auto SEO refresh: %d candidates", len(candidates))
+        refreshed = 0
+
+        for product in candidates:
+            pid = product["printify_product_id"]
+            etsy_listing_id = product["etsy_listing_id"]
+
+            try:
+                # Fetch current Etsy listing
+                listing = await self.etsy.get_listing(access_token, etsy_listing_id)
+                old_title = listing.get("title", "")
+                old_tags = listing.get("tags", [])
+                old_desc = listing.get("description", "")
+
+                # Regenerate SEO via Claude
+                new_listing = await self.listing_gen.regenerate_seo_from_existing(
+                    current_title=old_title,
+                    current_tags=old_tags,
+                    current_description=old_desc,
+                )
+
+                # Update on Etsy
+                update_data = {
+                    "title": new_listing.title,
+                    "tags": new_listing.tags,
+                    "description": new_listing.description,
+                }
+                await self.etsy.update_listing(access_token, shop_id, etsy_listing_id, update_data)
+
+                # Also update local DB description
+                pool = await db.get_pool()
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE products SET description = $1, title = $2, tags = $3, updated_at = NOW() WHERE printify_product_id = $4",
+                        new_listing.description, new_listing.title, new_listing.tags, pid,
+                    )
+
+                # Log the refresh
+                await db.save_seo_refresh_log(
+                    printify_product_id=pid,
+                    etsy_listing_id=etsy_listing_id,
+                    reason="low_views",
+                    old_title=old_title,
+                    new_title=new_listing.title,
+                    old_tags=old_tags,
+                    new_tags=new_listing.tags,
+                )
+
+                refreshed += 1
+                logger.info("SEO refreshed for %s: '%s' -> '%s'",
+                            pid, old_title[:50], new_listing.title[:50])
+
+                await asyncio.sleep(2)  # Rate limit (Claude + Etsy)
+
+            except Exception as e:
+                logger.error("SEO refresh failed for %s: %s", pid, e)
+                try:
+                    await db.save_seo_refresh_log(
+                        printify_product_id=pid,
+                        etsy_listing_id=etsy_listing_id,
+                        reason="low_views",
+                        old_title="",
+                        new_title="",
+                        status="error",
+                    )
+                except Exception:
+                    pass
+
+        logger.info("Auto SEO refresh complete: %d/%d refreshed", refreshed, len(candidates))
+        if refreshed > 0:
+            await self.notifier.send_message(
+                f"🔄 Auto SEO refresh: updated {refreshed}/{len(candidates)} listings with low views"
+            )

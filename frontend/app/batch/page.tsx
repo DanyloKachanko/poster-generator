@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   getLibraryCategories,
   getLibraryPrompts,
@@ -17,11 +18,29 @@ import {
   SizesResponse,
 } from '@/lib/api';
 import CreateProductModal from '@/components/CreateProductModal';
+import CustomPresetsPanel from '@/components/CustomPresetsPanel';
 import { ImageInfo } from '@/lib/api';
 
 type PageState = 'select' | 'running' | 'results';
+type Tab = 'library' | 'presets';
 
 export default function BatchPage() {
+  return (
+    <Suspense fallback={
+      <main className="p-4 md:p-6">
+        <div className="max-w-7xl mx-auto flex items-center justify-center p-12">
+          <div className="animate-spin h-8 w-8 border-2 border-accent border-t-transparent rounded-full" />
+        </div>
+      </main>
+    }>
+      <BatchPageInner />
+    </Suspense>
+  );
+}
+
+function BatchPageInner() {
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'presets' ? 'presets' : 'library');
   const [pageState, setPageState] = useState<PageState>('select');
   const [categories, setCategories] = useState<LibraryCategory[]>([]);
   const [prompts, setPrompts] = useState<LibraryPrompt[]>([]);
@@ -197,14 +216,36 @@ export default function BatchPage() {
           )}
         </div>
 
-        {error && (
+        {/* Tab switcher */}
+        <div className="flex items-center gap-1 mb-6">
+          {([
+            { key: 'library' as Tab, label: 'Prompt Library' },
+            { key: 'presets' as Tab, label: 'Custom Presets' },
+          ]).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                tab === t.key
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-dark-card border border-dark-border text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'presets' && <CustomPresetsPanel />}
+
+        {tab === 'library' && error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400">
             {error}
           </div>
         )}
 
         {/* SELECT STATE */}
-        {pageState === 'select' && (
+        {tab === 'library' && pageState === 'select' && (
           <div className="space-y-4">
             {/* Config row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -367,7 +408,7 @@ export default function BatchPage() {
         )}
 
         {/* RUNNING STATE */}
-        {pageState === 'running' && batchStatus && (
+        {tab === 'library' && pageState === 'running' && batchStatus && (
           <div className="space-y-4">
             {/* Progress bar */}
             <div className="bg-dark-card rounded-lg border border-dark-border p-4">
@@ -454,7 +495,7 @@ export default function BatchPage() {
         )}
 
         {/* RESULTS STATE */}
-        {pageState === 'results' && batchStatus && (
+        {tab === 'library' && pageState === 'results' && batchStatus && (
           <div className="space-y-4">
             {/* Summary */}
             <div className="bg-dark-card rounded-lg border border-dark-border p-4">

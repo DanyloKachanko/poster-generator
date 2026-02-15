@@ -8,6 +8,7 @@ import {
   getEtsyStatus,
   getEtsyAuthUrl,
   syncEtsyAnalytics,
+  syncEtsyOrders,
   disconnectEtsy,
   AnalyticsProduct,
   AnalyticsTotals,
@@ -16,6 +17,7 @@ import {
 
 type SortKey = 'title' | 'total_views' | 'total_favorites' | 'total_orders' | 'total_revenue_cents' | 'latest_date';
 type SortDir = 'asc' | 'desc';
+type StatusFilter = 'all' | 'on_etsy' | 'deleted' | 'draft';
 
 export default function AnalyticsPage() {
   const [products, setProducts] = useState<AnalyticsProduct[]>([]);
@@ -24,6 +26,7 @@ export default function AnalyticsPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>('total_views');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState({ views: 0, favorites: 0, orders: 0, revenue_cents: 0, notes: '' });
   const [saving, setSaving] = useState(false);
@@ -94,7 +97,8 @@ export default function AnalyticsPage() {
     setError(null);
     try {
       const result = await syncEtsyAnalytics();
-      setSyncMessage(`Synced ${result.synced} products (${result.date})`);
+      const ordersResult = await syncEtsyOrders().catch(() => ({ synced: 0 }));
+      setSyncMessage(`Synced ${result.synced} listings + ${ordersResult.synced} orders (${result.date})`);
       loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Sync failed');
@@ -103,7 +107,11 @@ export default function AnalyticsPage() {
     }
   };
 
-  const sorted = [...products].sort((a, b) => {
+  const filtered = statusFilter === 'all'
+    ? products
+    : products.filter((p) => p.status === statusFilter);
+
+  const sorted = [...filtered].sort((a, b) => {
     let av: string | number = a[sortKey] ?? '';
     let bv: string | number = b[sortKey] ?? '';
     if (typeof av === 'string') {
@@ -262,22 +270,76 @@ export default function AnalyticsPage() {
 
       {/* Summary cards */}
       {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Views</div>
-            <div className="text-2xl font-bold text-gray-100">{totals.total_views.toLocaleString()}</div>
+        <div className="space-y-4 mb-8">
+          {/* Row 1: Main metrics */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Views</div>
+              <div className="text-2xl font-bold text-gray-100">{totals.total_views.toLocaleString()}</div>
+              <div className="text-[10px] text-gray-600 mt-1">
+                avg {totals.avg_views}/product
+              </div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Favorites</div>
+              <div className="text-2xl font-bold text-gray-100">{totals.total_favorites.toLocaleString()}</div>
+              <div className="text-[10px] text-gray-600 mt-1">
+                {totals.fav_rate}% fav rate
+              </div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Orders</div>
+              <div className="text-2xl font-bold text-gray-100">{totals.total_orders.toLocaleString()}</div>
+              <div className="text-[10px] text-gray-600 mt-1">
+                {totals.total_views > 0 ? ((totals.total_orders / totals.total_views) * 100).toFixed(1) : '0'}% conversion
+              </div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+              <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Revenue</div>
+              <div className="text-2xl font-bold text-gray-100">{formatRevenue(totals.total_revenue_cents)}</div>
+              <div className="text-[10px] text-gray-600 mt-1">
+                {totals.total_orders > 0 ? formatRevenue(Math.round(totals.total_revenue_cents / totals.total_orders)) : '$0.00'} avg order
+              </div>
+            </div>
           </div>
-          <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Favorites</div>
-            <div className="text-2xl font-bold text-gray-100">{totals.total_favorites.toLocaleString()}</div>
-          </div>
-          <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Orders</div>
-            <div className="text-2xl font-bold text-gray-100">{totals.total_orders.toLocaleString()}</div>
-          </div>
-          <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-            <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Revenue</div>
-            <div className="text-2xl font-bold text-gray-100">{formatRevenue(totals.total_revenue_cents)}</div>
+
+          {/* Row 2: Product counts + best performer */}
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Total Products</div>
+              <div className="text-lg font-bold text-gray-100">{totals.total_products}</div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Live on Etsy</div>
+              <div className="text-lg font-bold text-green-400">{totals.live_products}</div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Drafts</div>
+              <div className="text-lg font-bold text-gray-400">{totals.draft_products}</div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Deleted</div>
+              <div className={`text-lg font-bold ${(totals.deleted_products ?? 0) > 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                {totals.deleted_products ?? 0}
+              </div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">No Views Yet</div>
+              <div className={`text-lg font-bold ${totals.products_no_views > 0 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                {totals.products_no_views}
+              </div>
+            </div>
+            <div className="bg-dark-card border border-dark-border rounded-lg p-3 md:col-span-1 col-span-2">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Top Performer</div>
+              {totals.best_performer ? (
+                <div className="text-sm font-medium text-accent truncate" title={totals.best_performer}>
+                  {totals.best_performer}
+                  <span className="text-[10px] text-gray-500 ml-1">({totals.best_performer_views} views)</span>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-600">--</div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -301,6 +363,31 @@ export default function AnalyticsPage() {
           >
             Go to Shop
           </Link>
+        </div>
+      )}
+
+      {/* Filter tabs */}
+      {products.length > 0 && (
+        <div className="flex items-center gap-1 mb-4">
+          {([
+            { key: 'all' as StatusFilter, label: 'All', count: products.length },
+            { key: 'on_etsy' as StatusFilter, label: 'On Etsy', count: products.filter(p => p.status === 'on_etsy').length },
+            { key: 'draft' as StatusFilter, label: 'Drafts', count: products.filter(p => p.status === 'draft').length },
+            { key: 'deleted' as StatusFilter, label: 'Deleted', count: products.filter(p => p.status === 'deleted').length },
+          ]).filter(tab => tab.key === 'all' || tab.count > 0).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setStatusFilter(tab.key)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                statusFilter === tab.key
+                  ? 'bg-accent/15 text-accent border border-accent/30'
+                  : 'bg-dark-card border border-dark-border text-gray-400 hover:text-gray-300 hover:bg-dark-hover'
+              }`}
+            >
+              {tab.label}
+              <span className="ml-1.5 text-[10px] opacity-70">{tab.count}</span>
+            </button>
+          ))}
         </div>
       )}
 
