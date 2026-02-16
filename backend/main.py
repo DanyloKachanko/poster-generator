@@ -31,7 +31,7 @@ from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 
 # Paths that don't require auth
-_PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
+_PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc", "/etsy/debug"}
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
