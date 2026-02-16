@@ -52,7 +52,7 @@ function BatchPageInner() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedPromptIds, setSelectedPromptIds] = useState<Set<string>>(new Set());
   const [modelId, setModelId] = useState('phoenix');
-  const [sizeId, setSizeId] = useState('poster_2_3');
+  const [sizeId, setSizeId] = useState('poster_4_5');
   const [numImages, setNumImages] = useState(1);
   const [delay, setDelay] = useState(3);
 

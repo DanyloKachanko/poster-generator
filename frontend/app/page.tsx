@@ -44,7 +44,7 @@ function HomeContent() {
   const [selectedStyle, setSelectedStyle] = useState<string | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>('phoenix');
-  const [selectedSize, setSelectedSize] = useState<string | null>('poster_2_3');
+  const [selectedSize, setSelectedSize] = useState<string | null>('poster_4_5');
   const [negativePrompt, setNegativePrompt] = useState<string>('');
   const [isCustomMode, setIsCustomMode] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
