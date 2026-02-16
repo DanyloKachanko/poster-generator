@@ -31,7 +31,7 @@ from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 
 # Paths that don't require auth
-_PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc", "/etsy/debug"}
+_PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -61,12 +61,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize database and scheduler on startup."""
+    import os
+    scheduler_enabled = os.getenv("SCHEDULER_ENABLED", "true").lower() in ("true", "1", "yes")
+
     await db.init_db()
-    await publish_scheduler.start()
-    await telegram_bot.start()
+    if scheduler_enabled:
+        await publish_scheduler.start()
+        await telegram_bot.start()
     yield
-    await telegram_bot.stop()
-    await publish_scheduler.stop()
+    if scheduler_enabled:
+        await telegram_bot.stop()
+        await publish_scheduler.stop()
 
 
 app = FastAPI(title="Poster Generator API", version="1.0.0", lifespan=lifespan)
