@@ -52,7 +52,9 @@ async def list_printify_products(
         products = result.get("data", [])
         if products:
             pids = [p["id"] for p in products]
-            base_url = str(request.base_url).rstrip("/")
+            scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+            host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+            base_url = f"{scheme}://{host}"
             pool = await db.get_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch("""
