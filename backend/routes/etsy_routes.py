@@ -482,19 +482,46 @@ async def get_product_manager_data():
         except Exception:
             pass
 
+        # Load custom mockup thumbnails from DB (preferred_mockup_url or first image_mockup)
+        mockup_thumbs = {}
+        try:
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT p.printify_product_id,
+                           COALESCE(
+                               p.preferred_mockup_url,
+                               (SELECT im.etsy_cdn_url
+                                FROM image_mockups im
+                                WHERE im.image_id = p.source_image_id
+                                  AND im.etsy_cdn_url IS NOT NULL
+                                ORDER BY im.rank LIMIT 1)
+                           ) AS mockup_url
+                    FROM products p
+                    WHERE p.printify_product_id = ANY($1::text[])
+                      AND p.archived IS NOT TRUE
+                """, [p["id"] for p in products])
+                for row in rows:
+                    if row["mockup_url"]:
+                        mockup_thumbs[row["printify_product_id"]] = row["mockup_url"]
+        except Exception:
+            pass
+
         # Merge
         merged = []
         for product in products:
             pid = product["id"]
             a = analytics_map.pop(pid, {})
 
-            thumbnail = None
-            for img in product.get("images", []):
-                if img.get("is_default"):
-                    thumbnail = img.get("src")
-                    break
-            if not thumbnail and product.get("images"):
-                thumbnail = product["images"][0].get("src")
+            # Prefer custom mockup, fall back to Printify image
+            thumbnail = mockup_thumbs.get(pid)
+            if not thumbnail:
+                for img in product.get("images", []):
+                    if img.get("is_default"):
+                        thumbnail = img.get("src")
+                        break
+                if not thumbnail and product.get("images"):
+                    thumbnail = product["images"][0].get("src")
 
             enabled_variants = [v for v in product.get("variants", []) if v.get("is_enabled")]
             prices = [v.get("price", 0) for v in enabled_variants]
