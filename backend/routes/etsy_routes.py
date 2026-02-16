@@ -499,7 +499,6 @@ async def get_product_manager_data():
                            ) AS mockup_url
                     FROM products p
                     WHERE p.printify_product_id = ANY($1::text[])
-                      AND p.archived IS NOT TRUE
                 """, [p["id"] for p in products])
                 for row in rows:
                     if row["mockup_url"]:
