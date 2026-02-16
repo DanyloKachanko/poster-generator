@@ -2,7 +2,7 @@ import re
 import io
 import time
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 import httpx
 from PIL import Image
@@ -37,6 +37,7 @@ async def get_printify_status():
 
 @router.get("/printify/products")
 async def list_printify_products(
+    request: Request,
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
 ):
@@ -51,22 +52,31 @@ async def list_printify_products(
         products = result.get("data", [])
         if products:
             pids = [p["id"] for p in products]
+            base_url = str(request.base_url).rstrip("/")
             pool = await db.get_pool()
             async with pool.acquire() as conn:
                 rows = await conn.fetch("""
                     SELECT p.printify_product_id,
-                           COALESCE(
-                               p.preferred_mockup_url,
-                               (SELECT im.etsy_cdn_url
-                                FROM image_mockups im
-                                WHERE im.image_id = p.source_image_id
-                                  AND im.etsy_cdn_url IS NOT NULL
-                                ORDER BY im.rank LIMIT 1)
-                           ) AS mockup_url
+                           p.preferred_mockup_url,
+                           (SELECT im.etsy_cdn_url
+                            FROM image_mockups im
+                            WHERE im.image_id = p.source_image_id
+                              AND im.etsy_cdn_url IS NOT NULL
+                            ORDER BY im.rank LIMIT 1) AS cdn_url,
+                           (SELECT im.id
+                            FROM image_mockups im
+                            WHERE im.image_id = p.source_image_id
+                            ORDER BY im.rank LIMIT 1) AS mockup_id
                     FROM products p
                     WHERE p.printify_product_id = ANY($1::text[])
                 """, pids)
-            mockup_map = {r["printify_product_id"]: r["mockup_url"] for r in rows if r["mockup_url"]}
+            mockup_map = {}
+            for r in rows:
+                url = r["preferred_mockup_url"] or r["cdn_url"]
+                if not url and r["mockup_id"]:
+                    url = f"{base_url}/mockups/serve/{r['mockup_id']}"
+                if url:
+                    mockup_map[r["printify_product_id"]] = url
             for p in products:
                 url = mockup_map.get(p["id"])
                 if url and p.get("images"):

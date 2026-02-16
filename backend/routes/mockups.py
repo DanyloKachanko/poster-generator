@@ -1291,6 +1291,28 @@ async def get_image_mockup_previews(image_id: int):
     return {"image_id": image_id, "mockups": mockups}
 
 
+@router.get("/mockups/serve/{mockup_id}")
+async def serve_mockup_image(mockup_id: int):
+    """Serve a composed mockup image directly from DB (base64 → binary)."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        data = await conn.fetchval(
+            "SELECT mockup_data FROM image_mockups WHERE id = $1", mockup_id
+        )
+    if not data:
+        raise HTTPException(status_code=404, detail="Mockup not found")
+    # mockup_data is "data:image/png;base64,..." or raw base64
+    if data.startswith("data:"):
+        # Strip data URL prefix
+        header, b64 = data.split(",", 1)
+        media = header.split(";")[0].split(":")[1]  # e.g. image/png
+    else:
+        b64 = data
+        media = "image/png"
+    img_bytes = base64.b64decode(b64)
+    return StreamingResponse(io.BytesIO(img_bytes), media_type=media)
+
+
 @router.post("/mockups/workflow/toggle-mockup/{mockup_id}")
 async def toggle_mockup_inclusion(mockup_id: int, is_included: bool = True):
     """Toggle whether a specific mockup is included in the Etsy upload."""
