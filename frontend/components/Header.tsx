@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { getCredits, CreditsResponse } from '@/lib/api';
+import { isAuthenticated, logout } from '@/lib/auth';
 
 interface NavGroup {
   label: string;
@@ -162,6 +163,7 @@ export default function Header() {
           </nav>
         </div>
 
+        <div className="flex items-center gap-3 flex-shrink-0">
         {credits?.balance && (
           <div className="flex items-center gap-3 text-sm flex-shrink-0">
             <div className="flex items-center gap-1.5">
@@ -184,6 +186,15 @@ export default function Header() {
             )}
           </div>
         )}
+        {isAuthenticated() && (
+          <button
+            onClick={logout}
+            className="px-3 py-1.5 rounded-md text-sm text-gray-400 hover:text-gray-200 hover:bg-dark-hover transition-colors"
+          >
+            Logout
+          </button>
+        )}
+        </div>
       </div>
     </header>
   );

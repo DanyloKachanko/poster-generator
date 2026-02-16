@@ -30,6 +30,7 @@ services:
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - DOVSHOP_API_KEY=${DOVSHOP_API_KEY}
       - DOVSHOP_API_URL=${DOVSHOP_API_URL}
+      - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
     restart: unless-stopped
 
   frontend:

@@ -1,3 +1,5 @@
+import { authFetch } from './auth';
+
 // API URL: prefer NEXT_PUBLIC_API_URL env var, fall back to current hostname
 export function getApiUrl(): string {
   if (typeof window !== 'undefined') {
@@ -8,6 +10,9 @@ export function getApiUrl(): string {
   }
   return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 }
+
+// Use authFetch for all API calls (adds Bearer token, handles 401)
+const apiFetch = authFetch;
 
 export interface StylePreset {
   name: string;
@@ -61,7 +66,7 @@ export interface GenerationStatusResponse {
 }
 
 export async function getStyles(): Promise<StylesResponse> {
-  const response = await fetch(`${getApiUrl()}/styles`);
+  const response = await apiFetch(`${getApiUrl()}/styles`);
   if (!response.ok) {
     throw new Error('Failed to fetch styles');
   }
@@ -69,7 +74,7 @@ export async function getStyles(): Promise<StylesResponse> {
 }
 
 export async function getModels(): Promise<ModelsResponse> {
-  const response = await fetch(`${getApiUrl()}/models`);
+  const response = await apiFetch(`${getApiUrl()}/models`);
   if (!response.ok) {
     throw new Error('Failed to fetch models');
   }
@@ -77,7 +82,7 @@ export async function getModels(): Promise<ModelsResponse> {
 }
 
 export async function getSizes(): Promise<SizesResponse> {
-  const response = await fetch(`${getApiUrl()}/sizes`);
+  const response = await apiFetch(`${getApiUrl()}/sizes`);
   if (!response.ok) {
     throw new Error('Failed to fetch sizes');
   }
@@ -85,7 +90,7 @@ export async function getSizes(): Promise<SizesResponse> {
 }
 
 export async function getDefaults(): Promise<DefaultsResponse> {
-  const response = await fetch(`${getApiUrl()}/defaults`);
+  const response = await apiFetch(`${getApiUrl()}/defaults`);
   if (!response.ok) {
     throw new Error('Failed to fetch defaults');
   }
@@ -99,7 +104,7 @@ export async function startGeneration(
   sizeId: string | null = null,
   negativePrompt: string | null = null
 ): Promise<GenerateResponse> {
-  const response = await fetch(`${getApiUrl()}/generate`, {
+  const response = await apiFetch(`${getApiUrl()}/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -124,7 +129,7 @@ export async function startGeneration(
 export async function getGenerationStatus(
   generationId: string
 ): Promise<GenerationStatusResponse> {
-  const response = await fetch(`${getApiUrl()}/generation/${generationId}`);
+  const response = await apiFetch(`${getApiUrl()}/generation/${generationId}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
     throw new Error(error.detail || 'Failed to get generation status');
@@ -226,7 +231,7 @@ export async function getHistory(
   if (excludeStyle) params.set('exclude_style', excludeStyle);
   if (archived) params.set('archived', 'true');
 
-  const response = await fetch(`${getApiUrl()}/history?${params}`);
+  const response = await apiFetch(`${getApiUrl()}/history?${params}`);
   if (!response.ok) {
     throw new Error('Failed to fetch history');
   }
@@ -234,7 +239,7 @@ export async function getHistory(
 }
 
 export async function archiveGeneration(generationId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/history/${generationId}/archive`, {
+  const response = await apiFetch(`${getApiUrl()}/history/${generationId}/archive`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -243,7 +248,7 @@ export async function archiveGeneration(generationId: string): Promise<void> {
 }
 
 export async function restoreGeneration(generationId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/history/${generationId}/restore`, {
+  const response = await apiFetch(`${getApiUrl()}/history/${generationId}/restore`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -270,7 +275,7 @@ export interface ExportResponse {
 }
 
 export async function getExportSizes(): Promise<ExportSizesResponse> {
-  const response = await fetch(`${getApiUrl()}/export/sizes`);
+  const response = await apiFetch(`${getApiUrl()}/export/sizes`);
   if (!response.ok) {
     throw new Error('Failed to fetch export sizes');
   }
@@ -282,7 +287,7 @@ export async function startExport(
   generationName: string,
   sizes?: string[]
 ): Promise<ExportResponse> {
-  const response = await fetch(`${getApiUrl()}/export`, {
+  const response = await apiFetch(`${getApiUrl()}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -302,7 +307,7 @@ export async function startExport(
 export async function getExportStatus(
   generationName: string
 ): Promise<Record<string, boolean>> {
-  const response = await fetch(`${getApiUrl()}/export/${generationName}/status`);
+  const response = await apiFetch(`${getApiUrl()}/export/${generationName}/status`);
   if (!response.ok) {
     throw new Error('Failed to get export status');
   }
@@ -341,7 +346,7 @@ export interface ListingRequest {
 }
 
 export async function generateListing(request: ListingRequest): Promise<ListingData> {
-  const response = await fetch(`${getApiUrl()}/generate-listing`, {
+  const response = await apiFetch(`${getApiUrl()}/generate-listing`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -358,7 +363,7 @@ export async function regenerateTitle(
   preset: string,
   currentTitle: string
 ): Promise<string> {
-  const response = await fetch(`${getApiUrl()}/regenerate-title`, {
+  const response = await apiFetch(`${getApiUrl()}/regenerate-title`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -380,7 +385,7 @@ export async function regenerateDescription(
   currentDescription: string,
   tone: string = 'warm'
 ): Promise<string> {
-  const response = await fetch(`${getApiUrl()}/regenerate-description`, {
+  const response = await apiFetch(`${getApiUrl()}/regenerate-description`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -403,7 +408,7 @@ export async function regenerateTags(
   currentTags: string[],
   title: string = ''
 ): Promise<string[]> {
-  const response = await fetch(`${getApiUrl()}/regenerate-tags`, {
+  const response = await apiFetch(`${getApiUrl()}/regenerate-tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -421,7 +426,7 @@ export async function regenerateTags(
 }
 
 export async function getPricing(strategy: string = 'standard'): Promise<Record<string, PriceInfo>> {
-  const response = await fetch(`${getApiUrl()}/pricing?strategy=${strategy}`);
+  const response = await apiFetch(`${getApiUrl()}/pricing?strategy=${strategy}`);
   if (!response.ok) {
     throw new Error('Failed to fetch pricing');
   }
@@ -429,7 +434,7 @@ export async function getPricing(strategy: string = 'standard'): Promise<Record<
 }
 
 export async function getCredits(): Promise<CreditsResponse> {
-  const response = await fetch(`${getApiUrl()}/credits`);
+  const response = await apiFetch(`${getApiUrl()}/credits`);
   if (!response.ok) {
     throw new Error('Failed to fetch credits');
   }
@@ -490,7 +495,7 @@ export interface PrintifyProductsResponse {
 }
 
 export async function getPrintifyStatus(): Promise<PrintifyStatus> {
-  const response = await fetch(`${getApiUrl()}/printify/status`);
+  const response = await apiFetch(`${getApiUrl()}/printify/status`);
   if (!response.ok) {
     throw new Error('Failed to fetch Printify status');
   }
@@ -502,7 +507,7 @@ export async function getPrintifyProducts(
   limit: number = 20
 ): Promise<PrintifyProductsResponse> {
   const params = new URLSearchParams({ page: page.toString(), limit: limit.toString() });
-  const response = await fetch(`${getApiUrl()}/printify/products?${params}`);
+  const response = await apiFetch(`${getApiUrl()}/printify/products?${params}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch products' }));
     throw new Error(error.detail || 'Failed to fetch products');
@@ -511,7 +516,7 @@ export async function getPrintifyProducts(
 }
 
 export async function getPrintifyProduct(productId: string): Promise<PrintifyProduct> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}`);
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch product');
   }
@@ -519,7 +524,7 @@ export async function getPrintifyProduct(productId: string): Promise<PrintifyPro
 }
 
 export async function publishPrintifyProduct(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}/publish`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}/publish`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -529,7 +534,7 @@ export async function publishPrintifyProduct(productId: string): Promise<void> {
 }
 
 export async function unpublishPrintifyProduct(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}/unpublish`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}/unpublish`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -539,7 +544,7 @@ export async function unpublishPrintifyProduct(productId: string): Promise<void>
 }
 
 export async function deletePrintifyProduct(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -559,7 +564,7 @@ export async function updatePrintifyProduct(
   productId: string,
   payload: UpdateProductPayload
 ): Promise<PrintifyProduct> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -614,7 +619,7 @@ export interface CreateFullProductResponse {
 export async function createFullProduct(
   request: CreateFullProductRequest
 ): Promise<CreateFullProductResponse> {
-  const response = await fetch(`${getApiUrl()}/create-full-product`, {
+  const response = await apiFetch(`${getApiUrl()}/create-full-product`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -678,7 +683,7 @@ export interface AnalyticsEntry {
 }
 
 export async function getAnalytics(): Promise<AnalyticsResponse> {
-  const response = await fetch(`${getApiUrl()}/analytics`);
+  const response = await apiFetch(`${getApiUrl()}/analytics`);
   if (!response.ok) {
     throw new Error('Failed to fetch analytics');
   }
@@ -694,7 +699,7 @@ export async function saveAnalytics(entry: {
   revenue_cents?: number;
   notes?: string;
 }): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/analytics`, {
+  const response = await apiFetch(`${getApiUrl()}/analytics`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(entry),
@@ -707,7 +712,7 @@ export async function saveAnalytics(entry: {
 export async function getProductAnalyticsHistory(
   productId: string
 ): Promise<{ entries: AnalyticsEntry[] }> {
-  const response = await fetch(`${getApiUrl()}/analytics/${productId}/history`);
+  const response = await apiFetch(`${getApiUrl()}/analytics/${productId}/history`);
   if (!response.ok) {
     throw new Error('Failed to fetch product analytics history');
   }
@@ -736,7 +741,7 @@ export interface EtsySyncResult {
 }
 
 export async function getEtsyStatus(): Promise<EtsyStatus> {
-  const response = await fetch(`${getApiUrl()}/etsy/status`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/status`);
   if (!response.ok) {
     throw new Error('Failed to fetch Etsy status');
   }
@@ -744,7 +749,7 @@ export async function getEtsyStatus(): Promise<EtsyStatus> {
 }
 
 export async function getEtsyAuthUrl(): Promise<{ url: string }> {
-  const response = await fetch(`${getApiUrl()}/etsy/auth-url`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/auth-url`);
   if (!response.ok) {
     throw new Error('Failed to get Etsy auth URL');
   }
@@ -752,7 +757,7 @@ export async function getEtsyAuthUrl(): Promise<{ url: string }> {
 }
 
 export async function syncEtsyAnalytics(): Promise<EtsySyncResult> {
-  const response = await fetch(`${getApiUrl()}/etsy/sync`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/sync`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -763,7 +768,7 @@ export async function syncEtsyAnalytics(): Promise<EtsySyncResult> {
 }
 
 export async function disconnectEtsy(): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/etsy/disconnect`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/disconnect`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -845,7 +850,7 @@ export interface EtsyShippingProfile {
 }
 
 export async function getEtsyShopSections(): Promise<{ results: EtsyShopSection[] }> {
-  const response = await fetch(`${getApiUrl()}/etsy/shop-sections`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/shop-sections`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch sections' }));
     throw new Error(error.detail || 'Failed to fetch sections');
@@ -854,7 +859,7 @@ export async function getEtsyShopSections(): Promise<{ results: EtsyShopSection[
 }
 
 export async function getEtsyShippingProfiles(): Promise<{ results: EtsyShippingProfile[] }> {
-  const response = await fetch(`${getApiUrl()}/etsy/shipping-profiles`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/shipping-profiles`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch profiles' }));
     throw new Error(error.detail || 'Failed to fetch profiles');
@@ -877,7 +882,7 @@ export interface BulkSeoResult {
 }
 
 export async function getEtsyListings(): Promise<EtsyListingsResponse> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch Etsy listings' }));
     throw new Error(error.detail || 'Failed to fetch Etsy listings');
@@ -889,7 +894,7 @@ export async function updateEtsyListing(
   listingId: string,
   payload: UpdateEtsyListingPayload
 ): Promise<EtsyListing> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/${listingId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -904,7 +909,7 @@ export async function updateEtsyListing(
 export async function getEtsyListingProperties(
   listingId: string
 ): Promise<{ colors: { primary_color: string | null; secondary_color: string | null } }> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/properties`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/${listingId}/properties`);
   if (!response.ok) return { colors: { primary_color: null, secondary_color: null } };
   return response.json();
 }
@@ -913,7 +918,7 @@ export async function updateEtsyImagesAltTexts(
   listingId: string,
   altTexts: string[]
 ): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images/alt-texts`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/${listingId}/images/alt-texts`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ alt_texts: altTexts }),
@@ -929,7 +934,7 @@ export async function updateEtsyImagesAltTexts(
 export async function getEtsyListingImages(
   listingId: string
 ): Promise<{ count: number; results: EtsyListingImage[] }> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images`);
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/${listingId}/images`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch images' }));
     throw new Error(error.detail || 'Failed to fetch images');
@@ -947,7 +952,7 @@ export async function uploadEtsyListingImage(
   if (rank !== undefined) {
     formData.append('rank', String(rank));
   }
-  const response = await fetch(`${getApiUrl()}/etsy/listings/${listingId}/images`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/${listingId}/images`, {
     method: 'POST',
     body: formData,
   });
@@ -988,7 +993,7 @@ export async function setEtsyListingImagePrimary(
 }
 
 export async function bulkRegenerateSeo(listingIds: string[]): Promise<BulkSeoResult> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/bulk-seo`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/bulk-seo`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ listing_ids: listingIds }),
@@ -1013,7 +1018,7 @@ export async function suggestSeo(
   tags: string[],
   description: string
 ): Promise<SeoSuggestion> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/suggest-seo`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/suggest-seo`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, tags, description }),
@@ -1045,7 +1050,7 @@ export interface MockupProduct {
 }
 
 export async function getMockups(): Promise<MockupProduct[]> {
-  const response = await fetch(`${getApiUrl()}/printify/mockups`);
+  const response = await apiFetch(`${getApiUrl()}/printify/mockups`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch mockups' }));
     throw new Error(error.detail || 'Failed to fetch mockups');
@@ -1076,7 +1081,7 @@ export interface AIFillResponse {
 }
 
 export async function aiFillListing(request: AIFillRequest): Promise<AIFillResponse> {
-  const response = await fetch(`${getApiUrl()}/etsy/listings/ai-fill`, {
+  const response = await apiFetch(`${getApiUrl()}/etsy/listings/ai-fill`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -1113,7 +1118,7 @@ export interface PresetsResponse {
 }
 
 export async function getPreset(presetId: string): Promise<PosterPreset> {
-  const response = await fetch(`${getApiUrl()}/presets/${presetId}`);
+  const response = await apiFetch(`${getApiUrl()}/presets/${presetId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch preset');
   }
@@ -1122,7 +1127,7 @@ export async function getPreset(presetId: string): Promise<PosterPreset> {
 
 export async function getPresets(category?: string): Promise<PresetsResponse> {
   const params = category ? `?category=${category}` : '';
-  const response = await fetch(`${getApiUrl()}/presets${params}`);
+  const response = await apiFetch(`${getApiUrl()}/presets${params}`);
   if (!response.ok) {
     throw new Error('Failed to fetch presets');
   }
@@ -1130,7 +1135,7 @@ export async function getPresets(category?: string): Promise<PresetsResponse> {
 }
 
 export async function getTrendingPresets(limit: number = 10): Promise<{ presets: PosterPreset[] }> {
-  const response = await fetch(`${getApiUrl()}/presets/trending?limit=${limit}`);
+  const response = await apiFetch(`${getApiUrl()}/presets/trending?limit=${limit}`);
   if (!response.ok) {
     throw new Error('Failed to fetch trending presets');
   }
@@ -1138,7 +1143,7 @@ export async function getTrendingPresets(limit: number = 10): Promise<{ presets:
 }
 
 export async function getCategories(): Promise<Record<string, PresetCategory>> {
-  const response = await fetch(`${getApiUrl()}/categories`);
+  const response = await apiFetch(`${getApiUrl()}/categories`);
   if (!response.ok) {
     throw new Error('Failed to fetch categories');
   }
@@ -1185,7 +1190,7 @@ export interface ProviderComparison {
 }
 
 export async function getProviders(): Promise<ProvidersResponse> {
-  const response = await fetch(`${getApiUrl()}/providers`);
+  const response = await apiFetch(`${getApiUrl()}/providers`);
   if (!response.ok) {
     throw new Error('Failed to fetch providers');
   }
@@ -1193,7 +1198,7 @@ export async function getProviders(): Promise<ProvidersResponse> {
 }
 
 export async function compareProviders(size: string = '18x24'): Promise<{ size: string; providers: ProviderComparison[] }> {
-  const response = await fetch(`${getApiUrl()}/providers/compare?size=${size}`);
+  const response = await apiFetch(`${getApiUrl()}/providers/compare?size=${size}`);
   if (!response.ok) {
     throw new Error('Failed to compare providers');
   }
@@ -1229,7 +1234,7 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {
-  const response = await fetch(`${getApiUrl()}/dashboard/stats`);
+  const response = await apiFetch(`${getApiUrl()}/dashboard/stats`);
   if (!response.ok) {
     throw new Error('Failed to fetch dashboard stats');
   }
@@ -1262,7 +1267,7 @@ export interface ProductManagerResponse {
 }
 
 export async function getProductManagerData(): Promise<ProductManagerResponse> {
-  const response = await fetch(`${getApiUrl()}/products/manager`);
+  const response = await apiFetch(`${getApiUrl()}/products/manager`);
   if (!response.ok) {
     throw new Error('Failed to fetch product manager data');
   }
@@ -1270,7 +1275,7 @@ export async function getProductManagerData(): Promise<ProductManagerResponse> {
 }
 
 export async function syncEtsyOrders(): Promise<{ synced: number; date: string }> {
-  const response = await fetch(`${getApiUrl()}/etsy/sync-orders`, { method: 'POST' });
+  const response = await apiFetch(`${getApiUrl()}/etsy/sync-orders`, { method: 'POST' });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Order sync failed' }));
     throw new Error(error.detail || 'Order sync failed');
@@ -1279,7 +1284,7 @@ export async function syncEtsyOrders(): Promise<{ synced: number; date: string }
 }
 
 export async function republishPrintifyProduct(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/printify/products/${productId}/republish`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/products/${productId}/republish`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -1317,7 +1322,7 @@ export interface LibraryPrompt {
 }
 
 export async function getLibraryCategories(): Promise<{ categories: LibraryCategory[] }> {
-  const response = await fetch(`${getApiUrl()}/library/categories`);
+  const response = await apiFetch(`${getApiUrl()}/library/categories`);
   if (!response.ok) {
     throw new Error('Failed to fetch library categories');
   }
@@ -1332,7 +1337,7 @@ export async function getLibraryPrompts(
   if (category) params.set('category', category);
   if (seasonality) params.set('seasonality', seasonality);
   const qs = params.toString() ? `?${params}` : '';
-  const response = await fetch(`${getApiUrl()}/library/prompts${qs}`);
+  const response = await apiFetch(`${getApiUrl()}/library/prompts${qs}`);
   if (!response.ok) {
     throw new Error('Failed to fetch library prompts');
   }
@@ -1340,7 +1345,7 @@ export async function getLibraryPrompts(
 }
 
 export async function getLibraryPrompt(promptId: string): Promise<LibraryPrompt> {
-  const response = await fetch(`${getApiUrl()}/library/prompts/${promptId}`);
+  const response = await apiFetch(`${getApiUrl()}/library/prompts/${promptId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch library prompt');
   }
@@ -1387,7 +1392,7 @@ export interface BatchStatus {
 export async function startBatchGeneration(
   request: BatchGenerateRequest
 ): Promise<BatchStatus> {
-  const response = await fetch(`${getApiUrl()}/batch/generate`, {
+  const response = await apiFetch(`${getApiUrl()}/batch/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -1400,7 +1405,7 @@ export async function startBatchGeneration(
 }
 
 export async function getBatchStatus(batchId: string): Promise<BatchStatus> {
-  const response = await fetch(`${getApiUrl()}/batch/${batchId}`);
+  const response = await apiFetch(`${getApiUrl()}/batch/${batchId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch batch status');
   }
@@ -1408,7 +1413,7 @@ export async function getBatchStatus(batchId: string): Promise<BatchStatus> {
 }
 
 export async function cancelBatch(batchId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/batch/${batchId}/cancel`, {
+  const response = await apiFetch(`${getApiUrl()}/batch/${batchId}/cancel`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -1418,7 +1423,7 @@ export async function cancelBatch(batchId: string): Promise<void> {
 }
 
 export async function listBatches(): Promise<{ batches: BatchStatus[] }> {
-  const response = await fetch(`${getApiUrl()}/batch`);
+  const response = await apiFetch(`${getApiUrl()}/batch`);
   if (!response.ok) {
     throw new Error('Failed to list batches');
   }
@@ -1454,7 +1459,7 @@ export interface AutoProductResponse {
 export async function autoCreateProduct(
   request: AutoProductRequest
 ): Promise<AutoProductResponse> {
-  const response = await fetch(`${getApiUrl()}/pipeline/auto-product`, {
+  const response = await apiFetch(`${getApiUrl()}/pipeline/auto-product`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -1484,7 +1489,7 @@ export async function analyzeDpi(
   height: number
 ): Promise<DpiAnalyzeResponse> {
   const params = new URLSearchParams({ width: width.toString(), height: height.toString() });
-  const response = await fetch(`${getApiUrl()}/dpi/analyze?${params}`);
+  const response = await apiFetch(`${getApiUrl()}/dpi/analyze?${params}`);
   if (!response.ok) {
     throw new Error('Failed to analyze DPI');
   }
@@ -1502,7 +1507,7 @@ export interface FixExistingResult {
 }
 
 export async function fixExistingProducts(dryRun: boolean = true): Promise<FixExistingResult> {
-  const response = await fetch(`${getApiUrl()}/printify/fix-existing-products?dry_run=${dryRun}`, {
+  const response = await apiFetch(`${getApiUrl()}/printify/fix-existing-products?dry_run=${dryRun}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -1547,7 +1552,7 @@ export interface ScheduleSettings {
 
 export async function getScheduleQueue(status?: string): Promise<ScheduledProduct[]> {
   const params = status ? `?status=${status}` : '';
-  const response = await fetch(`${getApiUrl()}/schedule/queue${params}`);
+  const response = await apiFetch(`${getApiUrl()}/schedule/queue${params}`);
   if (!response.ok) {
     throw new Error('Failed to fetch schedule queue');
   }
@@ -1555,7 +1560,7 @@ export async function getScheduleQueue(status?: string): Promise<ScheduledProduc
 }
 
 export async function getScheduleStats(): Promise<ScheduleStats> {
-  const response = await fetch(`${getApiUrl()}/schedule/stats`);
+  const response = await apiFetch(`${getApiUrl()}/schedule/stats`);
   if (!response.ok) {
     throw new Error('Failed to fetch schedule stats');
   }
@@ -1563,7 +1568,7 @@ export async function getScheduleStats(): Promise<ScheduleStats> {
 }
 
 export async function getScheduleSettings(): Promise<ScheduleSettings> {
-  const response = await fetch(`${getApiUrl()}/schedule/settings`);
+  const response = await apiFetch(`${getApiUrl()}/schedule/settings`);
   if (!response.ok) {
     throw new Error('Failed to fetch schedule settings');
   }
@@ -1578,7 +1583,7 @@ export async function updateScheduleSettings(settings: {
   default_shipping_profile_id?: number | null;
   default_shop_section_id?: number | null;
 }): Promise<ScheduleSettings> {
-  const response = await fetch(`${getApiUrl()}/schedule/settings`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -1591,7 +1596,7 @@ export async function updateScheduleSettings(settings: {
 }
 
 export async function publishNow(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/schedule/publish-now/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/publish-now/${productId}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -1603,7 +1608,7 @@ export async function publishNow(productId: string): Promise<void> {
 export async function addToSchedule(printifyProductId: string, title: string, scheduledPublishAt?: string): Promise<ScheduledProduct> {
   const body: Record<string, string> = { printify_product_id: printifyProductId, title };
   if (scheduledPublishAt) body.scheduled_publish_at = scheduledPublishAt;
-  const response = await fetch(`${getApiUrl()}/schedule/add`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/add`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -1616,7 +1621,7 @@ export async function addToSchedule(printifyProductId: string, title: string, sc
 }
 
 export async function removeFromSchedule(productId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/schedule/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/${productId}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -1632,7 +1637,7 @@ export async function addToScheduleBatch(productIds: string[]): Promise<{
   failed: number;
   results: Array<{ printify_product_id: string; title?: string; scheduled_publish_at?: string; error?: string }>;
 }> {
-  const response = await fetch(`${getApiUrl()}/schedule/add-batch`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/add-batch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ product_ids: productIds }),
@@ -1649,7 +1654,7 @@ export async function retrySchedule(productId: string): Promise<{
   status: string;
   scheduled_publish_at: string;
 }> {
-  const response = await fetch(`${getApiUrl()}/schedule/retry/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/schedule/retry/${productId}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -1698,7 +1703,7 @@ export async function getTrackedProducts(status?: string, limit: number = 50, of
   if (status) params.set('status', status);
   params.set('limit', String(limit));
   params.set('offset', String(offset));
-  const response = await fetch(`${getApiUrl()}/products?${params}`);
+  const response = await apiFetch(`${getApiUrl()}/products?${params}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch products' }));
     throw new Error(error.detail || 'Failed to fetch products');
@@ -1707,7 +1712,7 @@ export async function getTrackedProducts(status?: string, limit: number = 50, of
 }
 
 export async function getTrackedProduct(printifyProductId: string): Promise<TrackedProduct> {
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}`);
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Product not found' }));
     throw new Error(error.detail || 'Product not found');
@@ -1731,7 +1736,7 @@ export async function getProductMockups(printifyProductId: string): Promise<{
   title: string;
   mockups: ProductMockup[];
 }> {
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/mockups`);
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}/mockups`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch mockups' }));
     throw new Error(error.detail || 'Failed to fetch mockups');
@@ -1744,7 +1749,7 @@ export async function setProductPrimaryMockup(printifyProductId: string, mockupU
   etsy_listing_id: string;
   image_id: number;
 }> {
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/set-primary-mockup`, {
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}/set-primary-mockup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mockup_url: mockupUrl }),
@@ -1765,7 +1770,7 @@ export async function uploadProductMockup(printifyProductId: string, file: File,
   const formData = new FormData();
   formData.append('image', file);
   if (rank !== undefined) formData.append('rank', String(rank));
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/upload-mockup`, {
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}/upload-mockup`, {
     method: 'POST',
     body: formData,
   });
@@ -1780,7 +1785,7 @@ export async function setPreferredMockup(printifyProductId: string, mockupUrl: s
   printify_product_id: string;
   preferred_mockup_url: string | null;
 }> {
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/preferred-mockup`, {
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}/preferred-mockup`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ mockup_url: mockupUrl }),
@@ -1831,7 +1836,7 @@ export interface CalendarEventPreset {
 }
 
 export async function getCalendarEvents(days: number = 90): Promise<{ events: SeasonalEvent[] }> {
-  const response = await fetch(`${getApiUrl()}/calendar/upcoming?days=${days}`);
+  const response = await apiFetch(`${getApiUrl()}/calendar/upcoming?days=${days}`);
   if (!response.ok) {
     throw new Error('Failed to fetch calendar events');
   }
@@ -1839,7 +1844,7 @@ export async function getCalendarEvents(days: number = 90): Promise<{ events: Se
 }
 
 export async function getCalendarEvent(eventId: string): Promise<SeasonalEvent> {
-  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}`);
+  const response = await apiFetch(`${getApiUrl()}/calendar/events/${eventId}`);
   if (!response.ok) {
     throw new Error('Failed to fetch calendar event');
   }
@@ -1847,7 +1852,7 @@ export async function getCalendarEvent(eventId: string): Promise<SeasonalEvent> 
 }
 
 export async function getCalendarEventPresets(eventId: string): Promise<{ presets: CalendarEventPreset[] }> {
-  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}/presets`);
+  const response = await apiFetch(`${getApiUrl()}/calendar/events/${eventId}/presets`);
   if (!response.ok) {
     throw new Error('Failed to fetch event presets');
   }
@@ -1859,7 +1864,7 @@ export async function trackCalendarProduct(
   printifyProductId: string,
   presetId?: string
 ): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/calendar/events/${eventId}/track`, {
+  const response = await apiFetch(`${getApiUrl()}/calendar/events/${eventId}/track`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1901,7 +1906,7 @@ export interface MockupScenesResponse {
 }
 
 export async function getMockupScenes(): Promise<MockupScenesResponse> {
-  const response = await fetch(`${getApiUrl()}/mockups/scenes`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/scenes`);
   if (!response.ok) {
     throw new Error('Failed to fetch mockup scenes');
   }
@@ -1916,7 +1921,7 @@ export async function generateMockupScene(
   modelId?: string,
   style?: string
 ): Promise<{ generation_id: string; status: string; scene_type: string; ratio: string; width: number; height: number }> {
-  const response = await fetch(`${getApiUrl()}/mockups/generate-scene`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/generate-scene`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1950,7 +1955,7 @@ export interface MockupTemplate {
 }
 
 export async function getMockupTemplates(): Promise<MockupTemplate[]> {
-  const response = await fetch(`${getApiUrl()}/mockups/templates`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates`);
   if (!response.ok) throw new Error('Failed to fetch templates');
   return response.json();
 }
@@ -1963,7 +1968,7 @@ export async function saveMockupTemplate(
   corners: number[][],
   blendMode: string = 'normal'
 ): Promise<MockupTemplate> {
-  const response = await fetch(`${getApiUrl()}/mockups/templates`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -1983,7 +1988,7 @@ export async function saveMockupTemplate(
 }
 
 export async function deleteMockupTemplate(id: number): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/mockups/templates/${id}`, { method: 'DELETE' });
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates/${id}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('Failed to delete template');
 }
 
@@ -1996,7 +2001,7 @@ export async function updateMockupTemplate(
   corners: number[][],
   blendMode: string = 'normal'
 ): Promise<MockupTemplate> {
-  const response = await fetch(`${getApiUrl()}/mockups/templates/${id}`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2029,7 +2034,7 @@ export async function uploadMockupTemplate(
   formData.append('scene_height', sceneHeight.toString());
   formData.append('corners', JSON.stringify(corners));
 
-  const response = await fetch(`${getApiUrl()}/mockups/templates/upload`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -2046,7 +2051,7 @@ export async function composeMockup(
   fillMode: 'stretch' | 'fit' | 'fill' = 'fill',
   colorGrade: string = 'none'
 ): Promise<Blob> {
-  const response = await fetch(`${getApiUrl()}/mockups/compose`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/compose`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2069,13 +2074,13 @@ export interface DefaultTemplateResponse {
 }
 
 export async function getDefaultMockupTemplate(): Promise<DefaultTemplateResponse> {
-  const response = await fetch(`${getApiUrl()}/mockups/settings/default-template`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/settings/default-template`);
   if (!response.ok) throw new Error('Failed to get default template');
   return response.json();
 }
 
 export async function setDefaultMockupTemplate(templateId: number): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${getApiUrl()}/mockups/settings/default-template/${templateId}`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/settings/default-template/${templateId}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -2088,13 +2093,13 @@ export async function setDefaultMockupTemplate(templateId: number): Promise<{ su
 // === Active Templates ===
 
 export async function getActiveMockupTemplates(): Promise<{ active_templates: MockupTemplate[]; count: number }> {
-  const response = await fetch(`${getApiUrl()}/mockups/settings/active-templates`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/settings/active-templates`);
   if (!response.ok) throw new Error('Failed to fetch active templates');
   return response.json();
 }
 
 export async function toggleTemplateActive(templateId: number): Promise<{ template_id: number; is_active: boolean }> {
-  const response = await fetch(`${getApiUrl()}/mockups/templates/${templateId}/toggle-active`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/templates/${templateId}/toggle-active`, {
     method: 'POST',
   });
   if (!response.ok) throw new Error('Failed to toggle template');
@@ -2107,7 +2112,7 @@ export interface ComposeAllResult {
 }
 
 export async function composeAllMockups(posterUrl: string, fillMode: string = 'fill'): Promise<ComposeAllResult> {
-  const response = await fetch(`${getApiUrl()}/mockups/compose-all`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/compose-all`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ poster_url: posterUrl, fill_mode: fillMode }),
@@ -2128,19 +2133,19 @@ export interface MockupPack {
 }
 
 export async function getMockupPacks(): Promise<{ packs: MockupPack[] }> {
-  const response = await fetch(`${getApiUrl()}/mockups/packs`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/packs`);
   if (!response.ok) throw new Error('Failed to fetch packs');
   return response.json();
 }
 
 export async function getMockupPack(packId: number): Promise<MockupPack> {
-  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/packs/${packId}`);
   if (!response.ok) throw new Error('Failed to fetch pack');
   return response.json();
 }
 
 export async function createMockupPack(name: string, templateIds: number[] = [], colorGrade: string = 'none'): Promise<MockupPack> {
-  const response = await fetch(`${getApiUrl()}/mockups/packs`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/packs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, template_ids: templateIds, color_grade: colorGrade }),
@@ -2153,7 +2158,7 @@ export async function createMockupPack(name: string, templateIds: number[] = [],
 }
 
 export async function updateMockupPack(packId: number, name: string, templateIds: number[], colorGrade: string = 'none'): Promise<MockupPack> {
-  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/packs/${packId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name, template_ids: templateIds, color_grade: colorGrade }),
@@ -2166,18 +2171,18 @@ export async function updateMockupPack(packId: number, name: string, templateIds
 }
 
 export async function getColorGrades(): Promise<{ grades: { id: string; name: string }[] }> {
-  const response = await fetch(`${getApiUrl()}/mockups/color-grades`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/color-grades`);
   if (!response.ok) throw new Error('Failed to fetch color grades');
   return response.json();
 }
 
 export async function deleteMockupPack(packId: number): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/mockups/packs/${packId}`, { method: 'DELETE' });
+  const response = await apiFetch(`${getApiUrl()}/mockups/packs/${packId}`, { method: 'DELETE' });
   if (!response.ok) throw new Error('Failed to delete pack');
 }
 
 export async function composeByPack(posterUrl: string, packId: number, fillMode: string = 'fill'): Promise<ComposeAllResult & { pack_id: number }> {
-  const response = await fetch(`${getApiUrl()}/mockups/compose-by-pack`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/compose-by-pack`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ poster_url: posterUrl, pack_id: packId, fill_mode: fillMode }),
@@ -2187,7 +2192,7 @@ export async function composeByPack(posterUrl: string, packId: number, fillMode:
 }
 
 export async function reapplyApprovedMockups(packId?: number): Promise<{ started: boolean; total: number; message: string }> {
-  const response = await fetch(`${getApiUrl()}/mockups/workflow/reapply-approved`, {
+  const response = await apiFetch(`${getApiUrl()}/mockups/workflow/reapply-approved`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(packId ? { pack_id: packId } : {}),
@@ -2200,7 +2205,7 @@ export async function reapplyApprovedMockups(packId?: number): Promise<{ started
 }
 
 export async function getReapplyStatus(): Promise<{ running: boolean; total: number; done: number; ok: number; errors: string[] }> {
-  const response = await fetch(`${getApiUrl()}/mockups/workflow/reapply-status`);
+  const response = await apiFetch(`${getApiUrl()}/mockups/workflow/reapply-status`);
   if (!response.ok) throw new Error('Failed to get status');
   return response.json();
 }
@@ -2261,7 +2266,7 @@ export interface CompetitorSyncResult {
 }
 
 export async function searchCompetitorShops(keywords: string): Promise<CompetitorSearchResult[]> {
-  const response = await fetch(`${getApiUrl()}/competitors/search?keywords=${encodeURIComponent(keywords)}`);
+  const response = await apiFetch(`${getApiUrl()}/competitors/search?keywords=${encodeURIComponent(keywords)}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Search failed' }));
     throw new Error(error.detail || 'Search failed');
@@ -2271,7 +2276,7 @@ export async function searchCompetitorShops(keywords: string): Promise<Competito
 }
 
 export async function getCompetitors(): Promise<{ competitors: CompetitorShop[]; count: number }> {
-  const response = await fetch(`${getApiUrl()}/competitors`);
+  const response = await apiFetch(`${getApiUrl()}/competitors`);
   if (!response.ok) {
     throw new Error('Failed to fetch competitors');
   }
@@ -2279,7 +2284,7 @@ export async function getCompetitors(): Promise<{ competitors: CompetitorShop[];
 }
 
 export async function getCompetitor(id: number): Promise<CompetitorDetail> {
-  const response = await fetch(`${getApiUrl()}/competitors/${id}`);
+  const response = await apiFetch(`${getApiUrl()}/competitors/${id}`);
   if (!response.ok) {
     throw new Error('Failed to fetch competitor');
   }
@@ -2287,7 +2292,7 @@ export async function getCompetitor(id: number): Promise<CompetitorDetail> {
 }
 
 export async function addCompetitor(etsyShopId: string): Promise<CompetitorShop> {
-  const response = await fetch(`${getApiUrl()}/competitors`, {
+  const response = await apiFetch(`${getApiUrl()}/competitors`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ etsy_shop_id: etsyShopId }),
@@ -2300,7 +2305,7 @@ export async function addCompetitor(etsyShopId: string): Promise<CompetitorShop>
 }
 
 export async function deleteCompetitor(id: number): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/competitors/${id}`, {
+  const response = await apiFetch(`${getApiUrl()}/competitors/${id}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -2310,7 +2315,7 @@ export async function deleteCompetitor(id: number): Promise<void> {
 }
 
 export async function syncCompetitor(id: number): Promise<CompetitorSyncResult> {
-  const response = await fetch(`${getApiUrl()}/competitors/${id}/sync`, {
+  const response = await apiFetch(`${getApiUrl()}/competitors/${id}/sync`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -2368,13 +2373,13 @@ export interface PresetJobStatus {
 }
 
 export async function getCustomPresets(): Promise<{ presets: CustomPresetSummary[] }> {
-  const response = await fetch(`${getApiUrl()}/custom-presets`);
+  const response = await apiFetch(`${getApiUrl()}/custom-presets`);
   if (!response.ok) throw new Error('Failed to fetch custom presets');
   return response.json();
 }
 
 export async function getCustomPreset(presetId: string): Promise<CustomPreset> {
-  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}`);
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/${presetId}`);
   if (!response.ok) throw new Error('Failed to fetch custom preset');
   return response.json();
 }
@@ -2382,7 +2387,7 @@ export async function getCustomPreset(presetId: string): Promise<CustomPreset> {
 export async function uploadCustomPreset(file: File): Promise<{ preset_id: string; name: string }> {
   const formData = new FormData();
   formData.append('file', file);
-  const response = await fetch(`${getApiUrl()}/custom-presets/upload`, {
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/upload`, {
     method: 'POST',
     body: formData,
   });
@@ -2394,7 +2399,7 @@ export async function uploadCustomPreset(file: File): Promise<{ preset_id: strin
 }
 
 export async function deleteCustomPreset(presetId: string): Promise<void> {
-  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}`, {
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/${presetId}`, {
     method: 'DELETE',
   });
   if (!response.ok) throw new Error('Failed to delete preset');
@@ -2404,7 +2409,7 @@ export async function generatePresetPrompt(
   presetId: string,
   promptId: string
 ): Promise<{ generation_id: string; prompt_id: string; status: string; images: { id: string; url: string }[] }> {
-  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}/generate/${promptId}`, {
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/${presetId}/generate/${promptId}`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -2415,7 +2420,7 @@ export async function generatePresetPrompt(
 }
 
 export async function generateAllPresetPrompts(presetId: string): Promise<{ job_id: string }> {
-  const response = await fetch(`${getApiUrl()}/custom-presets/${presetId}/generate-all`, {
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/${presetId}/generate-all`, {
     method: 'POST',
   });
   if (!response.ok) {
@@ -2426,7 +2431,7 @@ export async function generateAllPresetPrompts(presetId: string): Promise<{ job_
 }
 
 export async function getPresetJobStatus(jobId: string): Promise<PresetJobStatus> {
-  const response = await fetch(`${getApiUrl()}/custom-presets/jobs/${jobId}`);
+  const response = await apiFetch(`${getApiUrl()}/custom-presets/jobs/${jobId}`);
   if (!response.ok) throw new Error('Failed to fetch job status');
   return response.json();
 }
@@ -2444,7 +2449,7 @@ export async function getCompetitorListings(
     limit: limit.toString(),
     offset: offset.toString(),
   });
-  const response = await fetch(`${getApiUrl()}/competitors/${id}/listings?${params}`);
+  const response = await apiFetch(`${getApiUrl()}/competitors/${id}/listings?${params}`);
   if (!response.ok) {
     throw new Error('Failed to fetch competitor listings');
   }
@@ -2503,7 +2508,7 @@ export interface CreateDovShopCollectionRequest {
 }
 
 export async function getDovShopStatus(): Promise<DovShopStatus> {
-  const response = await fetch(`${getApiUrl()}/dovshop/status`);
+  const response = await apiFetch(`${getApiUrl()}/dovshop/status`);
   if (!response.ok) {
     throw new Error('Failed to get DovShop status');
   }
@@ -2511,7 +2516,7 @@ export async function getDovShopStatus(): Promise<DovShopStatus> {
 }
 
 export async function getDovShopProducts(): Promise<{ products: DovShopProduct[] }> {
-  const response = await fetch(`${getApiUrl()}/dovshop/products`);
+  const response = await apiFetch(`${getApiUrl()}/dovshop/products`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch DovShop products' }));
     throw new Error(error.detail || 'Failed to fetch DovShop products');
@@ -2520,7 +2525,7 @@ export async function getDovShopProducts(): Promise<{ products: DovShopProduct[]
 }
 
 export async function pushProductToDovShop(data: PushProductToDovShopRequest): Promise<PushProductToDovShopResponse> {
-  const response = await fetch(`${getApiUrl()}/dovshop/push`, {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/push`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -2533,7 +2538,7 @@ export async function pushProductToDovShop(data: PushProductToDovShopRequest): P
 }
 
 export async function deleteDovShopProduct(productId: string): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${getApiUrl()}/dovshop/products/${productId}`, {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/products/${productId}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -2544,7 +2549,7 @@ export async function deleteDovShopProduct(productId: string): Promise<{ success
 }
 
 export async function getDovShopCollections(): Promise<{ collections: DovShopCollection[] }> {
-  const response = await fetch(`${getApiUrl()}/dovshop/collections`);
+  const response = await apiFetch(`${getApiUrl()}/dovshop/collections`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch DovShop collections' }));
     throw new Error(error.detail || 'Failed to fetch DovShop collections');
@@ -2553,7 +2558,7 @@ export async function getDovShopCollections(): Promise<{ collections: DovShopCol
 }
 
 export async function createDovShopCollection(data: CreateDovShopCollectionRequest): Promise<{ success: boolean; collection: DovShopCollection; message: string }> {
-  const response = await fetch(`${getApiUrl()}/dovshop/collections`, {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/collections`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -2566,7 +2571,7 @@ export async function createDovShopCollection(data: CreateDovShopCollectionReque
 }
 
 export async function deleteDovShopCollection(collectionId: string): Promise<{ success: boolean; message: string }> {
-  const response = await fetch(`${getApiUrl()}/dovshop/collections/${collectionId}`, {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/collections/${collectionId}`, {
     method: 'DELETE',
   });
   if (!response.ok) {
@@ -2587,7 +2592,7 @@ export interface DovShopSyncResponse {
 }
 
 export async function syncAllToDovShop(): Promise<DovShopSyncResponse> {
-  const response = await fetch(`${getApiUrl()}/dovshop/sync`, { method: 'POST' });
+  const response = await apiFetch(`${getApiUrl()}/dovshop/sync`, { method: 'POST' });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Sync failed' }));
     throw new Error(error.detail || 'Sync failed');
@@ -2607,7 +2612,7 @@ export interface UnlinkedImage {
 }
 
 export async function getUnlinkedImages(limit: number = 50, offset: number = 0): Promise<{ items: UnlinkedImage[]; total: number }> {
-  const response = await fetch(`${getApiUrl()}/generated-images/unlinked?limit=${limit}&offset=${offset}`);
+  const response = await apiFetch(`${getApiUrl()}/generated-images/unlinked?limit=${limit}&offset=${offset}`);
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Failed to fetch images' }));
     throw new Error(error.detail || 'Failed to fetch images');
@@ -2616,7 +2621,7 @@ export async function getUnlinkedImages(limit: number = 50, offset: number = 0):
 }
 
 export async function linkSourceImage(printifyProductId: string, imageId: number): Promise<{ success: boolean }> {
-  const response = await fetch(`${getApiUrl()}/products/${printifyProductId}/link-image`, {
+  const response = await apiFetch(`${getApiUrl()}/products/${printifyProductId}/link-image`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ image_id: imageId }),
@@ -2629,7 +2634,7 @@ export async function linkSourceImage(printifyProductId: string, imageId: number
 }
 
 export async function syncProductsFromPrintify(): Promise<{ total: number; imported: number; skipped: number }> {
-  const response = await fetch(`${getApiUrl()}/products/sync`, { method: 'POST' });
+  const response = await apiFetch(`${getApiUrl()}/products/sync`, { method: 'POST' });
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Sync failed' }));
     throw new Error(error.detail || 'Sync failed');

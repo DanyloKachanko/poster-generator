@@ -1,10 +1,14 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
 
 from deps import publish_scheduler, telegram_bot
+from auth import REQUIRE_AUTH, verify_token
 import database as db
 
+from routes.auth_routes import router as auth_router
 from routes.generation import router as generation_router
 from routes.export import router as export_router
 from routes.listings import router as listings_router
@@ -26,6 +30,33 @@ from routes.dovshop import router as dovshop_router
 from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 
+# Paths that don't require auth
+_PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if not REQUIRE_AUTH:
+            return await call_next(request)
+
+        path = request.url.path
+        if path in _PUBLIC_PATHS or request.method == "OPTIONS":
+            return await call_next(request)
+
+        # Allow Etsy OAuth callback
+        if path.startswith("/etsy/callback"):
+            return await call_next(request)
+
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+
+        token = auth_header[7:]
+        if not verify_token(token):
+            return JSONResponse({"detail": "Invalid or expired token"}, status_code=401)
+
+        return await call_next(request)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,7 +71,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Poster Generator API", version="1.0.0", lifespan=lifespan)
 
-# CORS configuration - allow all origins for development
+# Auth middleware (before CORS so 401 responses get CORS headers)
+app.add_middleware(AuthMiddleware)
+
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -50,6 +84,7 @@ app.add_middleware(
 )
 
 # Register all route modules
+app.include_router(auth_router)
 app.include_router(generation_router)
 app.include_router(export_router)
 app.include_router(listings_router)
