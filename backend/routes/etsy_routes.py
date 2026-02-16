@@ -238,24 +238,15 @@ async def etsy_oauth_callback(code: str, state: str):
                 etsy_user_id = token_parts[0]
             print(f"[Etsy callback] parsed user_id from token: {etsy_user_id}")
 
-        # If shop_id still missing, try public API (just x-api-key, no bearer)
+        # If shop_id still missing, use authenticated shops endpoint
         if not shop_id and etsy_user_id:
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(
-                        f"https://api.etsy.com/v3/application/users/{etsy_user_id}/shops",
-                        headers={"x-api-key": etsy._x_api_key},
-                        timeout=10.0,
-                    )
-                    print(f"[Etsy callback] public shops: {resp.status_code} {resp.text[:500]}")
-                    if resp.status_code == 200:
-                        shops_data = resp.json()
-                        if shops_data.get("shop_id"):
-                            shop_id = str(shops_data["shop_id"])
-                        elif shops_data.get("results"):
-                            shop_id = str(shops_data["results"][0].get("shop_id", ""))
+                shops_data = await etsy.get_user_shops(tokens.access_token, etsy_user_id)
+                print(f"[Etsy callback] get_user_shops response: {shops_data}")
+                if shops_data.get("shop_id"):
+                    shop_id = str(shops_data["shop_id"])
             except Exception as e:
-                print(f"[Etsy callback] public shops failed: {e}")
+                print(f"[Etsy callback] get_user_shops failed: {e}")
 
         print(f"[Etsy callback] final: user_id={etsy_user_id}, shop_id={shop_id}")
 
