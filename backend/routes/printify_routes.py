@@ -53,12 +53,20 @@ async def list_printify_products(
             pids = [p["id"] for p in products]
             pool = await db.get_pool()
             async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    "SELECT printify_product_id, preferred_mockup_url FROM products "
-                    "WHERE printify_product_id = ANY($1) AND preferred_mockup_url IS NOT NULL",
-                    pids,
-                )
-            mockup_map = {r["printify_product_id"]: r["preferred_mockup_url"] for r in rows}
+                rows = await conn.fetch("""
+                    SELECT p.printify_product_id,
+                           COALESCE(
+                               p.preferred_mockup_url,
+                               (SELECT im.etsy_cdn_url
+                                FROM image_mockups im
+                                WHERE im.image_id = p.source_image_id
+                                  AND im.etsy_cdn_url IS NOT NULL
+                                ORDER BY im.rank LIMIT 1)
+                           ) AS mockup_url
+                    FROM products p
+                    WHERE p.printify_product_id = ANY($1::text[])
+                """, pids)
+            mockup_map = {r["printify_product_id"]: r["mockup_url"] for r in rows if r["mockup_url"]}
             for p in products:
                 url = mockup_map.get(p["id"])
                 if url and p.get("images"):
