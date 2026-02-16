@@ -207,6 +207,21 @@ Respond with valid JSON only:
                 .split(";")[0]
                 .strip()
             )
+            # Normalize content type — Anthropic only accepts image/jpeg|png|gif|webp
+            allowed = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+            if content_type not in allowed:
+                # Detect from magic bytes
+                header = img_resp.content[:8]
+                if header[:8] == b"\x89PNG\r\n\x1a\n":
+                    content_type = "image/png"
+                elif header[:2] == b"\xff\xd8":
+                    content_type = "image/jpeg"
+                elif header[:4] == b"RIFF" and img_resp.content[8:12] == b"WEBP":
+                    content_type = "image/webp"
+                elif header[:6] in (b"GIF87a", b"GIF89a"):
+                    content_type = "image/gif"
+                else:
+                    content_type = "image/jpeg"  # safe fallback
             img_b64 = base64.b64encode(img_resp.content).decode("ascii")
 
         niche_hint = f"\nNICHE/STYLE HINT: {niche}" if niche else ""
