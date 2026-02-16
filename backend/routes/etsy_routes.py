@@ -27,6 +27,7 @@ async def ensure_etsy_token() -> tuple:
     """Get a valid Etsy access token, auto-refreshing if expired.
 
     Returns (access_token, shop_id) tuple.
+    Auto-fetches shop_id via API if missing from DB.
     """
     tokens = await db.get_etsy_tokens()
     if not tokens:
@@ -35,9 +36,6 @@ async def ensure_etsy_token() -> tuple:
     access_token = tokens["access_token"]
     shop_id = tokens.get("shop_id", "")
 
-    if not shop_id:
-        raise HTTPException(status_code=400, detail="No Etsy shop_id stored. Reconnect Etsy.")
-
     if tokens["expires_at"] < int(time.time()):
         try:
             new_tokens = await etsy.refresh_access_token(tokens["refresh_token"])
@@ -45,10 +43,32 @@ async def ensure_etsy_token() -> tuple:
                 access_token=new_tokens.access_token,
                 refresh_token=new_tokens.refresh_token,
                 expires_at=new_tokens.expires_at,
+                shop_id=shop_id,
             )
             access_token = new_tokens.access_token
         except Exception as e:
             raise HTTPException(status_code=401, detail=f"Token refresh failed: {e}")
+
+    # Auto-fetch shop_id if missing
+    if not shop_id:
+        try:
+            user_info = await etsy.get_me(access_token)
+            user_id = str(user_info.get("user_id", ""))
+            if user_id:
+                shops_data = await etsy.get_user_shops(access_token, user_id)
+                shop_id = str(shops_data.get("shop_id", ""))
+                if shop_id:
+                    await db.save_etsy_tokens(
+                        access_token=access_token,
+                        refresh_token=tokens["refresh_token"],
+                        expires_at=tokens["expires_at"],
+                        shop_id=shop_id,
+                    )
+        except Exception as e:
+            print(f"[ensure_etsy_token] auto-fetch shop_id failed: {e}")
+
+    if not shop_id:
+        raise HTTPException(status_code=400, detail="No Etsy shop_id stored. Reconnect Etsy.")
 
     return access_token, shop_id
 
