@@ -72,7 +72,7 @@ SIZES = {
     },
 }
 
-DEFAULT_SIZE = "poster_2_3"
+DEFAULT_SIZE = "poster_4_5"
 
 # Prompt suffix for consistent quality
 PROMPT_SUFFIX = ", high resolution, print-ready art, professional quality, no text, no watermark"

@@ -22,7 +22,7 @@ router = APIRouter(tags=["pipeline"])
 class AutoProductRequest(BaseModel):
     prompt_id: str
     model_id: str = "phoenix"
-    size_id: str = "poster_2_3"
+    size_id: str = "poster_4_5"
     pricing_strategy: str = "standard"
     publish_to_etsy: bool = False
     custom_title: Optional[str] = None
@@ -207,7 +207,7 @@ async def auto_create_product(request: AutoProductRequest):
 class PresetProductRequest(BaseModel):
     preset_id: str
     model_id: str = "phoenix"
-    size_id: str = "poster_2_3"
+    size_id: str = "poster_4_5"
     pricing_strategy: str = "standard"
     publish_to_etsy: bool = False
     seo_instruction: Optional[str] = None

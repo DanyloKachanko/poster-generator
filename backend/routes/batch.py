@@ -12,7 +12,7 @@ router = APIRouter(tags=["batch"])
 class BatchGenerateRequest(BaseModel):
     prompt_ids: List[str]
     model_id: str = "phoenix"
-    size_id: str = "poster_2_3"
+    size_id: str = "poster_4_5"
     num_images_per_prompt: int = Field(default=1, ge=1, le=2)
     use_variations: bool = False
     variation_index: Optional[int] = None
