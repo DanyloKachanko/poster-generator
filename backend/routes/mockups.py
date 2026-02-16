@@ -504,38 +504,46 @@ async def _upload_multi_images_to_etsy(
     listing_id: str,
     original_poster_url: str,
     mockup_entries: List[Tuple[int, bytes]],
+    has_existing_images: bool = True,
 ) -> List[dict]:
     """Upload only mockups to Etsy listing (no raw poster).
 
-    1. Delete all old images except one (Etsy requires min 1)
-    2. Upload mockups at rank=1..N (first mockup = Primary)
-    3. Delete the kept old image
+    When has_existing_images=True (default):
+      1. Delete all old images except one (Etsy requires min 1)
+      2. Upload mockups at rank=1..N (first mockup = Primary)
+      3. Delete the kept old image
+
+    When has_existing_images=False (published with images:false):
+      Just upload mockups at rank=1..N (no old images to manage).
+
     Returns per-image results with etsy_image_id + etsy_cdn_url.
     """
-    # Get existing images
-    old_images = []
-    try:
-        images_resp = await etsy.get_listing_images(access_token, listing_id)
-        old_images = [img["listing_image_id"] for img in images_resp.get("results", [])]
-    except Exception as e:
-        print(f"[mockup] Warning: could not list images for {listing_id}: {e}")
-
-    # Delete all except last (Etsy needs at least 1)
     kept_image = None
-    if old_images:
-        kept_image = old_images[-1]
-        to_delete = old_images[:-1]
-        if to_delete:
-            print(f"[mockup] Deleting {len(to_delete)} of {len(old_images)} old images from {listing_id}")
-            for old_id in to_delete:
-                try:
-                    await etsy.delete_listing_image(
-                        access_token=access_token, shop_id=shop_id,
-                        listing_id=listing_id, listing_image_id=str(old_id),
-                    )
-                    await asyncio.sleep(0.2)
-                except Exception as e:
-                    print(f"[mockup] Warning: failed to delete image {old_id}: {e}")
+
+    if has_existing_images:
+        # Get existing images
+        old_images = []
+        try:
+            images_resp = await etsy.get_listing_images(access_token, listing_id)
+            old_images = [img["listing_image_id"] for img in images_resp.get("results", [])]
+        except Exception as e:
+            print(f"[mockup] Warning: could not list images for {listing_id}: {e}")
+
+        # Delete all except last (Etsy needs at least 1)
+        if old_images:
+            kept_image = old_images[-1]
+            to_delete = old_images[:-1]
+            if to_delete:
+                print(f"[mockup] Deleting {len(to_delete)} of {len(old_images)} old images from {listing_id}")
+                for old_id in to_delete:
+                    try:
+                        await etsy.delete_listing_image(
+                            access_token=access_token, shop_id=shop_id,
+                            listing_id=listing_id, listing_image_id=str(old_id),
+                        )
+                        await asyncio.sleep(0.2)
+                    except Exception as e:
+                        print(f"[mockup] Warning: failed to delete image {old_id}: {e}")
 
     upload_results = []
     rank = 1
@@ -558,7 +566,7 @@ async def _upload_multi_images_to_etsy(
         except Exception as e:
             print(f"[mockup] Failed to upload mockup {mockup_db_id}: {e}")
 
-    # Delete the last kept old image
+    # Delete the last kept old image (only when we had existing images)
     if kept_image:
         try:
             await etsy.delete_listing_image(

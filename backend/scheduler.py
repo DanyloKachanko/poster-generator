@@ -221,7 +221,13 @@ class PublishScheduler:
         image_url = item_info.get("image_url") if item_info else None
         etsy_metadata = item_info.get("etsy_metadata", {}) if item_info else {}
 
-        await self.printify.publish_product(printify_product_id)
+        # Skip Printify images if custom mockups are ready
+        mockups_ready = await self._check_mockups_ready(printify_product_id)
+        sync_images = not mockups_ready
+        if not sync_images:
+            logger.info("Mockups ready for %s — publishing without Printify images", printify_product_id)
+
+        await self.printify.publish_product(printify_product_id, sync_images=sync_images)
         await db.update_schedule_status(printify_product_id, "published")
         logger.info("Immediately published %s", printify_product_id)
         stats = await db.get_schedule_stats()
@@ -230,7 +236,7 @@ class PublishScheduler:
         )
 
         # Post-publish: fill Etsy metadata + set primary image in background
-        asyncio.create_task(self._post_publish_etsy_setup(printify_product_id, etsy_metadata))
+        asyncio.create_task(self._post_publish_etsy_setup(printify_product_id, etsy_metadata, sync_images=sync_images))
 
         return {"printify_product_id": printify_product_id, "status": "published"}
 
@@ -252,7 +258,13 @@ class PublishScheduler:
         for item in due_items:
             pid = item["printify_product_id"]
             try:
-                await self.printify.publish_product(pid)
+                # Skip Printify images if custom mockups are ready
+                mockups_ready = await self._check_mockups_ready(pid)
+                sync_images = not mockups_ready
+                if not sync_images:
+                    logger.info("Mockups ready for %s — publishing without Printify images", pid)
+
+                await self.printify.publish_product(pid, sync_images=sync_images)
                 await db.update_schedule_status(pid, "published")
                 logger.info("Published %s (%s)", pid, item["title"][:40])
                 stats = await db.get_schedule_stats()
@@ -262,7 +274,7 @@ class PublishScheduler:
                 )
                 # Post-publish: fill Etsy metadata + set primary image
                 etsy_metadata = item.get("etsy_metadata", {})
-                asyncio.create_task(self._post_publish_etsy_setup(pid, etsy_metadata))
+                asyncio.create_task(self._post_publish_etsy_setup(pid, etsy_metadata, sync_images=sync_images))
             except Exception as e:
                 await db.update_schedule_status(pid, "failed", str(e))
                 await db.update_product_status(pid, "failed")
@@ -309,11 +321,37 @@ class PublishScheduler:
             logger.warning("Failed to get Etsy token: %s", e)
             return None
 
-    async def _post_publish_etsy_setup(self, printify_product_id: str, etsy_metadata: dict = None):
+    async def _check_mockups_ready(self, printify_product_id: str) -> bool:
+        """Return True if product has approved, included mockups ready for Etsy."""
+        try:
+            product = await db.get_product_by_printify_id(printify_product_id)
+            if not product:
+                return False
+            source_image_id = product.get("source_image_id")
+            if not source_image_id:
+                return False
+            # mockup_status lives on generated_images, not products
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT mockup_status FROM generated_images WHERE id = $1",
+                    source_image_id,
+                )
+            if not row or row["mockup_status"] != "approved":
+                return False
+            mockups = await db.get_image_mockups(source_image_id)
+            included = [m for m in mockups if m.get("is_included", True)]
+            return len(included) > 0
+        except Exception as e:
+            logger.debug("Mockup readiness check failed for %s: %s", printify_product_id, e)
+            return False
+
+    async def _post_publish_etsy_setup(self, printify_product_id: str, etsy_metadata: dict = None, sync_images: bool = True):
         """After publishing, fill Etsy listing metadata and set preferred primary image.
 
         Runs as a background task — polls until the Etsy listing appears,
         then updates metadata and optionally uploads the preferred mockup.
+        When sync_images=False, Printify didn't send images — skip delete step.
         """
         if not self.etsy:
             return
@@ -451,6 +489,7 @@ class PublishScheduler:
                         upload_results = await _upload_multi_images_to_etsy(
                             access_token, shop_id, etsy_listing_id,
                             poster_url, mockup_entries,
+                            has_existing_images=sync_images,
                         )
                         for ur in upload_results:
                             if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
@@ -501,6 +540,7 @@ class PublishScheduler:
                             upload_results = await _upload_multi_images_to_etsy(
                                 access_token, shop_id, etsy_listing_id,
                                 poster_url, mockup_entries,
+                                has_existing_images=sync_images,
                             )
                             for ur in upload_results:
                                 if ur.get("mockup_db_id") and ur.get("etsy_image_id"):

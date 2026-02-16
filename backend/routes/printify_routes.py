@@ -150,8 +150,28 @@ async def publish_printify_product(product_id: str):
         raise HTTPException(status_code=400, detail="Printify not configured")
 
     try:
-        result = await printify.publish_product(product_id)
-        return {"ok": True, "result": result}
+        # Skip Printify images if custom mockups are ready
+        sync_images = True
+        try:
+            product = await db.get_product_by_printify_id(product_id)
+            if product and product.get("source_image_id"):
+                source_image_id = product["source_image_id"]
+                pool = await db.get_pool()
+                async with pool.acquire() as conn:
+                    img_row = await conn.fetchrow(
+                        "SELECT mockup_status FROM generated_images WHERE id = $1",
+                        source_image_id,
+                    )
+                if img_row and img_row["mockup_status"] == "approved":
+                    mockups = await db.get_image_mockups(source_image_id)
+                    included = [m for m in mockups if m.get("is_included", True)]
+                    if included:
+                        sync_images = False
+        except Exception:
+            pass  # Fallback to sync_images=True
+
+        result = await printify.publish_product(product_id, sync_images=sync_images)
+        return {"ok": True, "result": result, "sync_images": sync_images}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

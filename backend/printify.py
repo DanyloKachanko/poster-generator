@@ -193,12 +193,12 @@ class PrintifyAPI:
             variants=data.get("variants", []),
         )
 
-    async def publish_product(self, product_id: str) -> dict:
+    async def publish_product(self, product_id: str, sync_images: bool = True) -> dict:
         """Publish product to connected store (Etsy)."""
         payload = {
             "title": True,
             "description": True,
-            "images": True,
+            "images": sync_images,
             "variants": True,
             "tags": True,
         }
