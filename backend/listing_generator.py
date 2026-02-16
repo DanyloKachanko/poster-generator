@@ -125,16 +125,24 @@ Title: "{current_title}"
 Tags: {tags_str}
 Description: "{current_description[:500]}"
 
-Analyze this listing and generate an IMPROVED version following Etsy A10 SEO best practices:
+Generate an IMPROVED version following 2026 Etsy SEO best practices:
 
-1. Identify the "Superstar Keyword" (SK) — the main 2-3 word search query buyers use
-2. SK must be FIRST in the title and FIRST in the description (within first 160 chars)
-3. Title: max 140 chars, sections separated by " | ", no repeated words
-4. Tags: exactly 13, each 2-3 words, max 20 chars, lowercase
-5. Description: SK in first sentence, min 300 chars, keep the same product details sections (PERFECT FOR, PRINT DETAILS, AVAILABLE SIZES, gift angle, shop promo for DovShopDesign)
-6. AVAILABLE SIZES: keep ONLY the sizes from the original description, do NOT add sizes that are not in the original
+1. Identify the "Superstar Keyword" (SK) — the main 2-4 word search phrase buyers type
+2. SK must be FIRST in the title and within the first 160 chars of description
+3. Title: 50-80 chars ideal, max 2 pipe " | " sections, front-load SK, no repeated words
+4. Tags: exactly 13, max 20 chars each, lowercase. Cover 6 buyer-intent categories:
+   - CORE (2): SK + synonym
+   - BUYER INTENT (3): gift angle, purchase motivation, buyer persona
+   - STYLE/AESTHETIC (3): visual style, technique, trend
+   - ROOM/SPACE (2): primary room, secondary room
+   - OCCASION (2): seasonal, specific occasion
+   - LONG-TAIL NICHE (1): ultra-specific search term
+5. Description: SK in first sentence, min 500 chars. 3 keyword-rich paragraphs before structured sections. Keep PERFECT FOR, PRINT DETAILS, AVAILABLE SIZES, gift angle, shop promo for DovShopDesign.
+6. AVAILABLE SIZES: keep ONLY the sizes from the original description, do NOT add new sizes
+7. Do NOT waste tags on broad category terms (e.g., "wall art" or "poster" alone)
+8. Do NOT repeat the same root word in more than 3 tags
 
-Keep the same product type and subject matter. Improve keyword placement and variety.
+Keep the same product type and subject matter. Improve keyword placement, diversity, and buyer-intent coverage.
 
 Respond with valid JSON only:
 {{"title": "...", "tags": ["tag1", ..., "tag13"], "description": "...", "superstar_keyword": "..."}}"""
@@ -227,10 +235,10 @@ Respond with valid JSON only:
 {current_hint}{niche_hint}
 
 STRICT RULES:
-1. Title: Under 140 characters. Use " | " as separator. Superstar keyword FIRST.
-2. Tags: EXACTLY 13 tags. Each max 20 characters. Each 2-3 words. No single-word tags.
-3. Description: Superstar keyword in FIRST sentence within first 160 chars. Min 300 chars total.
-4. Superstar keyword (SK): 2-3 words, under 20 characters, specific to this poster.
+1. Title: 50-80 characters ideal. Front-load the primary keyword. Use " | " as separator (max 2). SK must be FIRST.
+2. Tags: EXACTLY 13 tags. Each max 20 characters. Multi-word preferred. Must cover diverse buyer intents — NOT all product-type synonyms.
+3. Description: SK in FIRST sentence within first 160 chars. Min 500 chars total. Weave 5-8 tag keywords naturally.
+4. Superstar keyword (SK): 2-4 words, under 20 characters, specific to this poster. Think like a buyer searching Etsy.
 
 PRODUCT INFO:
 - Type: Wall art poster print
@@ -243,53 +251,77 @@ PRODUCT INFO:
 IMPORTANT: ONLY list the sizes shown above. Do NOT add any other sizes.
 
 DESCRIPTION FORMAT (follow exactly):
-[SK] — [emotional hook about what the poster depicts, 1-2 sentences].
 
-[Second paragraph: repeat SK naturally, describe who it's for and what interiors it complements].
+Paragraph 1 — HOOK (SK in first sentence, first 160 chars):
+Describe exactly what the poster depicts — subject, colors, composition, mood. Be vivid and specific. This is the Google snippet.
+
+Paragraph 2 — VALUE:
+Who this is for, what rooms and styles it complements. Naturally include 3-4 tag keywords.
+
+Paragraph 3 — STORY:
+The artistic angle — technique, inspiration, what makes this piece unique. Weave in 2-3 more tag keywords naturally.
 
 ♥ PERFECT FOR:
-- [specific use case 1]
-- [specific use case 2 — gift angle]
-- [specific use case 3 — room/style]
-- [specific use case 4 — occasion]
+• [Specific room + style combo]
+• [Gift scenario with recipient]
+• [Mood/atmosphere goal]
+• [Interior design context]
 
 🖼 PRINT DETAILS:
-- Museum-quality matte paper (250 gsm / 110 lb)
-- Vibrant, fade-resistant archival inks
-- Available in multiple sizes to fit your space
-- Shipped in sturdy protective packaging
-- Frame not included
+• Museum-quality matte paper (250 gsm / 110 lb)
+• Vibrant, fade-resistant archival inks
+• Available in multiple sizes to fit your space
+• Shipped in sturdy protective packaging
+• Frame not included
 
 📐 AVAILABLE SIZES:
 {sizes_block}
 
 ⚠️ PLEASE NOTE:
-- This listing is for the POSTER PRINT ONLY — frame is not included
-- Please double-check the size you are ordering before purchase
-- Need a custom size? Message us and we'll work it out together
+• This listing is for the POSTER PRINT ONLY — frame is not included
+• Please double-check the size you are ordering before purchase
+• Need a custom size? Message us and we'll work it out together
 
-🎁 [Gift angle — who to gift it to and why].
+🎁 [Gift paragraph — specific recipients and occasions, using tag keywords].
 
 [Relevant emoji] More designs at DovShopDesign — where thoughtful design meets everyday spaces.
 
-TAG STRUCTURE (follow this order):
-1. superstar keyword
-2. gift keyword (gift for her/him/mom)
-3. product type variation
-4. style + product
-5. room + decor
-6. occasion keyword
-7. synonym of SK
-8. adjective + product
-9. different room variation
-10. trend keyword
-11. niche keyword
-12. alternative name
-13. broad category
+TAG STRATEGY — cover these 6 buyer-intent categories:
 
-5. Primary color: The DOMINANT color in the poster. Must be exactly one of: Beige, Black, Blue, Bronze, Brown, Clear, Copper, Gold, Gray, Green, Orange, Pink, Purple, Rainbow, Red, Rose gold, Silver, White, Yellow
-6. Secondary color: The SECOND most prominent color. Same allowed values as above. Must be DIFFERENT from primary color.
-7. Alt texts: Generate exactly 5 DIFFERENT alt text descriptions for listing images (max 250 chars each):
+CORE (2 tags):
+1. The SK itself
+2. Close synonym or variation of SK
+
+BUYER INTENT (3 tags):
+3. Gift angle — "gift for him", "gift for mom", "new home gift"
+4. Purchase motivation — "office decor idea", "bedroom makeover"
+5. Buyer persona — "art lover gift", "nature lover print"
+
+STYLE / AESTHETIC (3 tags):
+6. Visual style — "minimalist japanese", "zen ink wash"
+7. Technique or medium look — "watercolor print", "ink drawing art"
+8. Aesthetic trend — "japandi decor", "cottagecore art"
+
+ROOM / SPACE (2 tags):
+9. Primary room — "bedroom wall decor", "living room art"
+10. Secondary room — "office poster", "bathroom print"
+
+OCCASION (2 tags):
+11. Seasonal or event — "christmas gift idea", "housewarming present"
+12. Specific occasion — "anniversary art", "birthday gift art"
+
+LONG-TAIL NICHE (1 tag):
+13. Ultra-specific search — exact subject of this poster
+
+RULES:
+- Do NOT repeat the same root word in more than 3 tags.
+- Do NOT use tags that duplicate the Etsy category (e.g., "poster" or "wall art" alone).
+- Each tag must bring NEW search reach.
+
+ADDITIONAL FIELDS:
+- Primary color: The DOMINANT color. Must be exactly one of: Beige, Black, Blue, Bronze, Brown, Clear, Copper, Gold, Gray, Green, Orange, Pink, Purple, Rainbow, Red, Rose gold, Silver, White, Yellow
+- Secondary color: The SECOND most prominent. Same allowed values. Must be DIFFERENT from primary.
+- Alt texts: Generate exactly 5 DIFFERENT alt text descriptions (max 250 chars each):
    - alt_text_1: Describe the poster artwork itself (what it depicts, colors, style)
    - alt_text_2: "[Subject] wall art poster print displayed in a modern living room"
    - alt_text_3: "[Subject] framed art print mockup in a cozy bedroom setting"
@@ -300,12 +332,12 @@ OUTPUT FORMAT (respond ONLY with this JSON, no other text):
 {{"superstar_keyword": "...", "title": "...", "tags": ["tag1", ..., "tag13"], "description": "...", "materials": ["material1", "material2"], "primary_color": "...", "secondary_color": "...", "alt_texts": ["alt1", "alt2", "alt3", "alt4", "alt5"]}}
 
 VALIDATE BEFORE RESPONDING:
-- Title < 140 chars
-- Each tag <= 20 chars
-- Exactly 13 tags
-- No single-word tags
+- Title 50-80 chars (max 100)
+- Each tag <= 20 chars, exactly 13 tags
 - SK in title and first 160 chars of description
-- primary_color and secondary_color are from the allowed list and different from each other
+- Tags cover at least 4 of the 6 buyer-intent categories
+- No root word repeated in more than 3 tags
+- primary_color and secondary_color from allowed list and different
 - Each alt_text <= 250 chars, exactly 5 alt texts"""
 
         payload = {
@@ -391,12 +423,12 @@ VALIDATE BEFORE RESPONDING:
 Style: {style}, Theme: {preset}
 
 Generate 1 alternative title following these rules:
-- Max 140 characters
+- 50-80 characters ideal
 - Start with the main keyword (superstar keyword)
-- Separate sections with " | "
-- No repeated words across the whole title
-- Must read naturally, not spammy
-- Include: what it is + style + who it's for/where it goes
+- Max 2 pipe " | " separators (3 sections)
+- No repeated words
+- Every word must earn its place — no filler
+- Format: [Primary Keyword Phrase] | [Secondary Angle] | [Buyer Context]
 
 Respond with ONLY the new title, no quotes, no explanation."""
 
@@ -434,25 +466,20 @@ Respond with ONLY the new title, no quotes, no explanation."""
         prompt = f"""Current Etsy listing tags: {tags_str}{title_context}
 Style: {style}, Theme: {preset}
 
-Generate exactly 13 new Etsy tags following this structure:
-1. superstar keyword (main search query)
-2. gift keyword (gift for her/him/mom)
-3. product type variation (poster/print/wall art synonym)
-4. style + product
-5. room + decor
-6. occasion/season keyword
-7. synonym of main keyword
-8. adjective + product
-9. different room variation
-10. seasonal/trend keyword
-11. niche keyword
-12. alternative name for subject
-13. broad category
+Generate exactly 13 new Etsy tags covering these 6 buyer-intent categories:
+
+CORE (2): SK itself + close synonym
+BUYER INTENT (3): gift angle, purchase motivation, buyer persona
+STYLE/AESTHETIC (3): visual style, technique/medium, aesthetic trend
+ROOM/SPACE (2): primary room, secondary room
+OCCASION (2): seasonal event, specific occasion
+LONG-TAIL NICHE (1): ultra-specific search for this exact poster
 
 RULES:
-- Each tag: 2-3 words, max 20 characters, lowercase
-- No single-word tags
-- Don't repeat the same word in more than 2-3 tags
+- Each tag: max 20 characters, lowercase, multi-word preferred
+- Do NOT repeat the same root word in more than 3 tags
+- Do NOT use broad category terms alone (e.g., "poster", "wall art")
+- Each tag must bring NEW search reach — no overlapping intents
 - Different from current tags where possible
 
 Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."""
@@ -494,18 +521,19 @@ Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."
 Style: {style}, Theme: {preset}
 
 Follow this structure:
-- Paragraph 1: Superstar keyword in first sentence (first 160 chars critical for Google SEO). What this poster is, who it's for.
-- Paragraph 2: Repeat keyword naturally. Expanded value — what interiors it complements.
-- ♥ PERFECT FOR: 4 bullet points (use cases, gift ideas, rooms)
+- Paragraph 1 — HOOK: SK in first sentence (first 160 chars = Google snippet). Describe exactly what the poster depicts — subject, colors, composition, mood.
+- Paragraph 2 — VALUE: Who this is for, what rooms and styles it complements. Weave in 3-4 relevant keywords naturally.
+- Paragraph 3 — STORY: The artistic angle — technique, inspiration, what makes this piece unique. Include 2-3 more keywords naturally.
+- ♥ PERFECT FOR: 4 keyword-rich bullet points (room+style, gift scenario, mood goal, interior design)
 - 🖼 PRINT DETAILS: Museum-quality matte paper (250 gsm / 110 lb), fade-resistant archival inks, multiple sizes, sturdy packaging, frame not included
-- 📐 AVAILABLE SIZES: keep only sizes from the original description, do NOT add new sizes
-- 🎁 Gift angle paragraph
+- 📐 AVAILABLE SIZES: keep ONLY sizes from the original description, do NOT add new sizes
+- 🎁 Gift paragraph with occasion keywords
 - Last line: shop promo for DovShopDesign
 
 RULES:
-- Min 300 characters total
-- NO generic phrases like "Transform your space"
-- Be specific about colors, subject, mood
+- Min 500 characters total
+- BANNED: "Transform your space", "Elevate", "Stunning", "Perfect addition", "Captivating", "Add a touch of", "Breathtaking", "Bring nature indoors"
+- Be specific about colors, subject, composition, technique, mood
 
 Respond with ONLY the new description, no quotes."""
 

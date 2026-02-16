@@ -27,6 +27,8 @@ export default function MockupsPage() {
   const [etsyImages, setEtsyImages] = useState<EtsyListingImage[]>([]);
   const [etsyLoading, setEtsyLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [imgVersion, setImgVersion] = useState(() => Date.now());
+  const nocache = (url: string) => url ? `${url}${url.includes('?') ? '&' : '?'}v=${imgVersion}` : '';
 
   useEffect(() => {
     getMockups()
@@ -63,6 +65,7 @@ export default function MockupsPage() {
     try {
       const data = await getEtsyListingImages(listingId);
       setEtsyImages(data.results || []);
+      setImgVersion(Date.now());
     } catch {
       setEtsyImages([]);
     } finally {
@@ -284,7 +287,7 @@ export default function MockupsPage() {
                                     className={`relative flex-shrink-0 w-20 group ${isPrimary ? 'ring-2 ring-green-500 rounded' : ''}`}
                                   >
                                     <img
-                                      src={img.url_570xN}
+                                      src={nocache(img.url_570xN)}
                                       alt={`Etsy image ${i + 1}`}
                                       className={`w-20 h-28 object-cover rounded ${isLoadingThis ? 'opacity-40' : ''}`}
                                     />

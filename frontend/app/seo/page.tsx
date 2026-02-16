@@ -104,6 +104,8 @@ export default function SeoPage() {
   const [mockupMap, setMockupMap] = useState<Record<string, MockupProduct>>({});
   const [showMockupPicker, setShowMockupPicker] = useState(false);
   const [mockupUploading, setMockupUploading] = useState<string | null>(null);
+  const [imgVersion, setImgVersion] = useState(() => Date.now());
+  const nocache = (url: string) => url ? `${url}${url.includes('?') ? '&' : '?'}v=${imgVersion}` : '';
 
   // Selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -145,8 +147,8 @@ export default function SeoPage() {
   }, [listings, search, sortKey, sortAsc, listingScores]);
 
   const analysis = useMemo(
-    () => analyzeSeo(editTitle, editTags, editDesc, editMaterials),
-    [editTitle, editTags, editDesc, editMaterials]
+    () => analyzeSeo(editTitle, editTags, editDesc, editMaterials, { primary: editPrimaryColor, secondary: editSecondaryColor }, editAltTexts),
+    [editTitle, editTags, editDesc, editMaterials, editPrimaryColor, editSecondaryColor, editAltTexts]
   );
 
   const activeListing = listings.find((l) => l.listing_id === activeId);
@@ -167,6 +169,7 @@ export default function SeoPage() {
     try {
       const data = await getEtsyListings();
       setListings(data.listings);
+      setImgVersion(Date.now());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load listings');
     } finally {
@@ -439,6 +442,50 @@ export default function SeoPage() {
     );
   };
 
+  const handleAiFillSelected = async () => {
+    const toFill = listings.filter((l) => selectedIds.has(String(l.listing_id)));
+    if (toFill.length === 0) return;
+
+    aiFillAllCancelled.current = false;
+    setAiFillAllProgress({ current: 0, total: toFill.length });
+    const cache: Record<number, AIFillResponse> = { ...aiFillCache };
+
+    for (let i = 0; i < toFill.length; i++) {
+      if (aiFillAllCancelled.current) break;
+
+      const listing = toFill[i];
+      setAiFillAllProgress({ current: i + 1, total: toFill.length });
+
+      const imageUrl = listing.images?.[0]?.url_570xN;
+      if (!imageUrl) continue;
+
+      try {
+        const result = await aiFillListing({
+          image_url: imageUrl,
+          current_title: listing.title,
+        });
+        cache[listing.listing_id] = result;
+      } catch {
+        // Skip failed listings
+      }
+
+      if (i < toFill.length - 1 && !aiFillAllCancelled.current) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+
+    setAiFillCache(cache);
+    setAiFillAllProgress(null);
+
+    if (activeId && cache[activeId]) {
+      applyAiFillResult(cache[activeId]);
+    }
+
+    setSuccessMsg(
+      `AI Fill complete: ${toFill.length} listings processed. Open each to review & save.`
+    );
+  };
+
   const cancelAiFillAll = () => {
     aiFillAllCancelled.current = true;
   };
@@ -497,10 +544,23 @@ export default function SeoPage() {
           ? { ...l, images: data.results }
           : l
       ));
+      setImgVersion(Date.now());
     } catch {
       // Silent — images still show from last load
     }
   }, [activeId]);
+
+  // Re-apply alt texts after image changes (upload, delete, reorder)
+  const reapplyAltTexts = useCallback(async () => {
+    if (!activeId) return;
+    const nonEmpty = editAltTexts.filter(t => t.trim());
+    if (nonEmpty.length === 0) return;
+    try {
+      await updateEtsyImagesAltTexts(String(activeId), editAltTexts);
+    } catch (e) {
+      console.warn('Failed to re-apply alt texts after image change:', e);
+    }
+  }, [activeId, editAltTexts]);
 
   const handleSetPrimary = async (imageId: number) => {
     if (!activeId || imageLoading) return;
@@ -508,6 +568,7 @@ export default function SeoPage() {
     try {
       await setEtsyListingImagePrimary(String(activeId), String(imageId));
       await refreshImages();
+      await reapplyAltTexts();
       setSuccessMsg('Primary image updated');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to set primary');
@@ -527,6 +588,7 @@ export default function SeoPage() {
     try {
       await deleteEtsyListingImage(String(activeId), String(imageId));
       await refreshImages();
+      await reapplyAltTexts();
       setSuccessMsg('Image deleted');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete image');
@@ -547,6 +609,7 @@ export default function SeoPage() {
     try {
       await uploadEtsyListingImage(String(activeId), e.target.files[0]);
       await refreshImages();
+      await reapplyAltTexts();
       setSuccessMsg('Image uploaded');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload image');
@@ -571,6 +634,7 @@ export default function SeoPage() {
       const file = new File([blob], 'mockup.jpg', { type: blob.type || 'image/jpeg' });
       await uploadEtsyListingImage(String(activeId), file);
       await refreshImages();
+      await reapplyAltTexts();
       setSuccessMsg('Mockup uploaded to Etsy');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload mockup');
@@ -750,7 +814,7 @@ export default function SeoPage() {
                     />
                     {thumb && (
                       <img
-                        src={thumb}
+                        src={nocache(thumb)}
                         alt=""
                         onClick={() => openEditor(listing)}
                         className="w-20 h-28 rounded object-cover flex-shrink-0"
@@ -785,12 +849,21 @@ export default function SeoPage() {
           {selectedIds.size > 0 && (
             <div className="flex-shrink-0 border-t border-dark-border bg-dark-card/80 px-3 py-2 flex items-center justify-between">
               <span className="text-xs text-gray-300">{selectedIds.size} selected</span>
-              <button
-                onClick={() => setSelectedIds(new Set())}
-                className="text-[11px] text-gray-500 hover:text-gray-300"
-              >
-                Clear
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleAiFillSelected}
+                  disabled={!!aiFillAllProgress}
+                  className="px-2.5 py-1 bg-purple-600/20 border border-purple-500/30 text-purple-300 rounded text-[11px] font-medium hover:bg-purple-600/30 transition-colors disabled:opacity-40"
+                >
+                  AI Fill ({selectedIds.size})
+                </button>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-[11px] text-gray-500 hover:text-gray-300"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -806,7 +879,7 @@ export default function SeoPage() {
               {/* Header */}
               <div className="flex items-center gap-3 mb-3">
                 {activeListing.images?.[0]?.url_570xN && (
-                  <img src={activeListing.images[0].url_570xN} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
+                  <img src={nocache(activeListing.images[0].url_570xN)} alt="" className="w-10 h-10 rounded object-cover flex-shrink-0" />
                 )}
                 <div className="flex items-center gap-3 flex-1 min-w-0 text-xs text-gray-500">
                   <span>#{activeListing.listing_id}</span>
@@ -865,7 +938,7 @@ export default function SeoPage() {
                             className={`relative flex-shrink-0 w-20 group ${isPrimary ? 'ring-2 ring-accent rounded' : ''}`}
                           >
                             <img
-                              src={img.url_570xN}
+                              src={nocache(img.url_570xN)}
                               alt={`Image ${i + 1}`}
                               className={`w-20 h-28 object-cover rounded ${isLoadingThis ? 'opacity-40' : ''}`}
                             />
@@ -961,8 +1034,8 @@ export default function SeoPage() {
                     <div className={`text-2xl font-bold ${scoreColor(analysis.score)}`}>{analysis.score}</div>
                     <div className={`text-[10px] font-bold ${scoreColor(analysis.score)}`}>{scoreGrade(analysis.score)}</div>
                   </div>
-                  <div className="flex-1 grid grid-cols-3 gap-2">
-                    {([['Title', analysis.titleScore, 25], ['Tags', analysis.tagsScore, 25], ['Desc', analysis.descScore, 25]] as const).map(([label, s, max]) => (
+                  <div className="flex-1 grid grid-cols-4 gap-2">
+                    {([['Title', analysis.titleScore, 30], ['Tags', analysis.tagsScore, 30], ['Desc', analysis.descScore, 25], ['Meta', Math.min(15, Math.max(0, analysis.score - analysis.titleScore - analysis.tagsScore - analysis.descScore)), 15]] as const).map(([label, s, max]) => (
                       <div key={label} className="text-center">
                         <div className={`text-sm font-semibold ${scoreColor((s / max) * 100)}`}>{s}/{max}</div>
                         <div className="text-[10px] text-gray-500">{label}</div>
