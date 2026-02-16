@@ -46,6 +46,12 @@ SIZES = {
         "height": 2304,
         "description": "Standard poster — auto-crops to all print sizes",
     },
+    "poster_4_5": {
+        "name": "Poster 4:5",
+        "width": 1232,
+        "height": 1536,
+        "description": "8×10, 16×20 prints — exact ratio, no crop needed",
+    },
     "poster_3_4": {
         "name": "Poster 3:4",
         "width": 1152,
