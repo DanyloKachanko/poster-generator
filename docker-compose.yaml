@@ -17,8 +17,6 @@ services:
       - "${BACKEND_PORT:-8003}:8000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    env_file:
-      - .env
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - LEONARDO_API_KEY=${LEONARDO_API_KEY}
