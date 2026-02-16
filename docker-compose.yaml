@@ -11,6 +11,15 @@ services:
       - "5432:5432"
     restart: unless-stopped
 
+  tunnel:
+    build: ./tunnel
+    command: ["root@109.199.96.162"]
+    volumes:
+      - ~/.ssh:/root/.ssh:ro
+    profiles:
+      - dev
+    restart: unless-stopped
+
   backend:
     build: ./backend
     ports:

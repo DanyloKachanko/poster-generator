@@ -185,58 +185,6 @@ class AIFillBatchRequest(BaseModel):
 # ETSY OAUTH + SYNC ENDPOINTS
 # ---------------------------------------------------------------------------
 
-@router.get("/etsy/debug")
-async def etsy_debug():
-    """Debug endpoint: test Etsy token and API access."""
-    tokens = await db.get_etsy_tokens()
-    if not tokens:
-        return {"error": "No tokens stored"}
-
-    access_token = tokens["access_token"]
-    result = {
-        "shop_id": tokens.get("shop_id", ""),
-        "expires_at": tokens.get("expires_at"),
-        "expired": tokens.get("expires_at", 0) < int(time.time()),
-        "token_prefix": access_token[:20] + "...",
-    }
-
-    # Test get_me
-    try:
-        me = await etsy.get_me(access_token)
-        result["get_me"] = me
-    except Exception as e:
-        result["get_me_error"] = str(e)
-
-    # Test get_user_shops
-    user_id = result.get("get_me", {}).get("user_id")
-    if user_id:
-        try:
-            shops = await etsy.get_user_shops(access_token, str(user_id))
-            result["get_user_shops"] = shops
-        except Exception as e:
-            result["get_user_shops_error"] = str(e)
-
-    # Test listings
-    shop_id = tokens.get("shop_id", "")
-    if shop_id:
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"https://api.etsy.com/v3/application/shops/{shop_id}/listings",
-                    headers=etsy._auth_headers(access_token),
-                    params={"limit": 1, "state": "active"},
-                    timeout=10.0,
-                )
-                result["listings_status"] = resp.status_code
-                if resp.status_code >= 400:
-                    result["listings_body"] = resp.text[:500]
-                else:
-                    result["listings_count"] = resp.json().get("count", 0)
-        except Exception as e:
-            result["listings_error"] = str(e)
-
-    return result
-
 
 @router.get("/etsy/status")
 async def get_etsy_status():
