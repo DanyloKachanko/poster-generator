@@ -30,6 +30,7 @@ export interface ModelInfo {
   id: string;
   name: string;
   description: string;
+  ultra?: boolean;
 }
 
 export type ModelsResponse = Record<string, ModelInfo>;
@@ -102,7 +103,8 @@ export async function startGeneration(
   numImages: number,
   modelId: string | null = null,
   sizeId: string | null = null,
-  negativePrompt: string | null = null
+  negativePrompt: string | null = null,
+  ultra: boolean = false
 ): Promise<GenerateResponse> {
   const response = await apiFetch(`${getApiUrl()}/generate`, {
     method: 'POST',
@@ -115,6 +117,7 @@ export async function startGeneration(
       model_id: modelId,
       size_id: sizeId,
       negative_prompt: negativePrompt,
+      ultra,
     }),
   });
 

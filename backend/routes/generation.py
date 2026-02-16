@@ -19,6 +19,7 @@ class GenerateRequest(BaseModel):
     num_images: int = Field(default=4, ge=1, le=4)
     model_id: str | None = Field(default=None, description="Model key from /models")
     size_id: str | None = Field(default=None, description="Size key from /sizes")
+    ultra: bool = Field(default=False, description="Ultra mode (~5MP output, Phoenix only)")
     style: str | None = Field(default=None, description="Style category")
     preset: str | None = Field(default=None, description="Preset within style")
 
@@ -138,6 +139,9 @@ async def start_generation(request: GenerateRequest):
         if request.size_id and request.size_id.startswith("poster_"):
             generation_prompt = request.prompt + COMPOSITION_SUFFIX
 
+        # Ultra mode only works with Phoenix
+        use_ultra = request.ultra and model_info.get("ultra", False)
+
         result = await leonardo.create_generation(
             prompt=generation_prompt,
             width=width,
@@ -145,6 +149,7 @@ async def start_generation(request: GenerateRequest):
             num_images=request.num_images,
             model_id=model_info["id"],
             negative_prompt=negative_prompt,
+            ultra=use_ultra,
         )
 
         # Save to database (store original prompt, not with suffix)

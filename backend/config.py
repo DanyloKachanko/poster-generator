@@ -7,6 +7,7 @@ MODELS = {
         "id": "de7d3faf-762f-48e0-b3b7-9d0ac3a3fcf3",
         "name": "Phoenix 1.0",
         "description": "Best prompt adherence and text rendering",
+        "ultra": True,
     },
     "kino_xl": {
         "id": "aa77f04e-3eec-4034-9c07-d0f619684628",
@@ -44,6 +45,12 @@ SIZES = {
         "width": 1536,
         "height": 2304,
         "description": "Standard poster — auto-crops to all print sizes",
+    },
+    "poster_3_4": {
+        "name": "Poster 3:4",
+        "width": 1152,
+        "height": 1536,
+        "description": "Photo-ratio poster — 11×14, 9×12 prints",
     },
     "square_1_1": {
         "name": "Square 1:1",

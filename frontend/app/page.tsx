@@ -50,6 +50,7 @@ function HomeContent() {
   const [customPrompt, setCustomPrompt] = useState('');
   const [loadedPreset, setLoadedPreset] = useState<PosterPreset | null>(null);
   const [numImages, setNumImages] = useState(1);
+  const [ultra, setUltra] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -137,7 +138,8 @@ function HomeContent() {
         numImages,
         selectedModel,
         selectedSize,
-        negativePrompt || null
+        negativePrompt || null,
+        ultra
       );
 
       const result = await pollForCompletion(generation_id);
@@ -177,13 +179,27 @@ function HomeContent() {
             disabled={isGenerating}
             loading={isLoading}
           />
-          <GenerateButton
-            onClick={handleGenerate}
-            disabled={!canGenerate()}
-            isGenerating={isGenerating}
-            numImages={numImages}
-            onNumImagesChange={setNumImages}
-          />
+          <div className="space-y-2">
+            <GenerateButton
+              onClick={handleGenerate}
+              disabled={!canGenerate()}
+              isGenerating={isGenerating}
+              numImages={numImages}
+              onNumImagesChange={setNumImages}
+            />
+            {models[selectedModel || '']?.ultra && (
+              <label className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface border border-border cursor-pointer hover:border-accent/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={ultra}
+                  onChange={(e) => setUltra(e.target.checked)}
+                  disabled={isGenerating}
+                  className="accent-accent"
+                />
+                <span className="text-xs text-gray-300">Ultra (~5MP, more credits)</span>
+              </label>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-4">

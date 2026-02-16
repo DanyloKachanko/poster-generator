@@ -27,6 +27,7 @@ class LeonardoAI:
         num_images: int = 4,
         model_id: Optional[str] = None,
         negative_prompt: Optional[str] = None,
+        ultra: bool = False,
     ) -> dict:
         """
         Start a new image generation.
@@ -38,6 +39,7 @@ class LeonardoAI:
             num_images: Number of images to generate (1-4)
             model_id: Leonardo model ID to use
             negative_prompt: Things to avoid in the image
+            ultra: Enable Ultra mode (Phoenix only, ~5MP output, costs more credits)
 
         Returns:
             dict with generation_id and initial status
@@ -51,6 +53,9 @@ class LeonardoAI:
             "negative_prompt": negative_prompt or self.DEFAULT_NEGATIVE_PROMPT,
             "public": False,
         }
+
+        if ultra:
+            payload["ultra"] = True
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
