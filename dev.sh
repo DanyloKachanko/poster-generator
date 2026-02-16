@@ -6,4 +6,4 @@
 set -e
 
 echo "Starting tunnel + backend + frontend..."
-docker-compose --profile dev up --build backend frontend
+docker-compose --profile dev up --build tunnel backend frontend
