@@ -1,11 +1,13 @@
 """Etsy listing text generator using Claude API"""
 
+import io
 import os
 import json
 import base64
 import httpx
 from typing import Optional
 from dataclasses import dataclass
+from PIL import Image
 
 from prompts import SYSTEM_PROMPT, LISTING_PROMPT_TEMPLATE, get_style_context
 
@@ -40,6 +42,18 @@ class ListingGenerator:
             "content-type": "application/json",
             "anthropic-version": "2023-06-01",
         }
+
+    @staticmethod
+    def _check_response(response: httpx.Response):
+        """Raise with Anthropic error details instead of generic HTTP error."""
+        if response.is_success:
+            return
+        try:
+            body = response.json()
+            msg = body.get("error", {}).get("message", response.text[:500])
+        except Exception:
+            msg = response.text[:500]
+        raise Exception(f"Anthropic API error {response.status_code}: {msg}")
 
     async def generate_listing(
         self,
@@ -78,7 +92,7 @@ class ListingGenerator:
                 json=payload,
                 timeout=60.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         content = data["content"][0]["text"]
@@ -161,7 +175,7 @@ Respond with valid JSON only:
                 json=payload,
                 timeout=60.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         content = data["content"][0]["text"]
@@ -222,7 +236,35 @@ Respond with valid JSON only:
                     content_type = "image/gif"
                 else:
                     content_type = "image/jpeg"  # safe fallback
-            img_b64 = base64.b64encode(img_resp.content).decode("ascii")
+
+            # Anthropic limit: 5MB image, 8000px max dimension
+            # Downscale large images (e.g. Ultra mode) to stay within limits
+            img_data = img_resp.content
+            MAX_BYTES = 4_500_000  # stay under 5MB with margin
+            MAX_DIM = 8000
+            img = Image.open(io.BytesIO(img_data))
+            w, h = img.size
+            needs_resize = len(img_data) > MAX_BYTES or max(w, h) > MAX_DIM
+            if needs_resize:
+                # Scale down to fit within limits
+                scale = min(MAX_DIM / max(w, h), 1.0)
+                if scale < 1.0:
+                    img = img.resize(
+                        (int(w * scale), int(h * scale)), Image.LANCZOS
+                    )
+                # Re-encode as JPEG (smaller than PNG)
+                buf = io.BytesIO()
+                rgb = img.convert("RGB") if img.mode != "RGB" else img
+                quality = 85
+                rgb.save(buf, format="JPEG", quality=quality)
+                while buf.tell() > MAX_BYTES and quality > 40:
+                    buf = io.BytesIO()
+                    quality -= 10
+                    rgb.save(buf, format="JPEG", quality=quality)
+                img_data = buf.getvalue()
+                content_type = "image/jpeg"
+
+            img_b64 = base64.b64encode(img_data).decode("ascii")
 
         niche_hint = f"\nNICHE/STYLE HINT: {niche}" if niche else ""
         current_hint = (
@@ -387,7 +429,7 @@ VALIDATE BEFORE RESPONDING:
                 json=payload,
                 timeout=90.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         content = data["content"][0]["text"]
@@ -461,7 +503,7 @@ Respond with ONLY the new title, no quotes, no explanation."""
                 json=payload,
                 timeout=30.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         return data["content"][0]["text"].strip()[:140]
@@ -513,7 +555,7 @@ Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."
                 json=payload,
                 timeout=30.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         text = data["content"][0]["text"].strip()
@@ -566,7 +608,7 @@ Respond with ONLY the new description, no quotes."""
                 json=payload,
                 timeout=30.0,
             )
-            response.raise_for_status()
+            self._check_response(response)
             data = response.json()
 
         return data["content"][0]["text"].strip()
