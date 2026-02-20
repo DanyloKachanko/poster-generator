@@ -24,6 +24,7 @@ const navGroups: NavGroup[] = [
       { href: '/', label: 'Generate' },
       { href: '/batch', label: 'Batch' },
       { href: '/batch?tab=presets', label: 'Presets' },
+      { href: '/strategy', label: 'Strategy' },
       { href: '/history', label: 'History' },
     ],
   },

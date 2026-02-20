@@ -29,6 +29,7 @@ from routes.custom_presets import router as custom_presets_router
 from routes.dovshop import router as dovshop_router
 from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
+from routes.strategy import router as strategy_router
 
 # Paths that don't require auth
 _PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
@@ -110,3 +111,4 @@ app.include_router(custom_presets_router)
 app.include_router(dovshop_router)
 app.include_router(sync_router)
 app.include_router(sync_ui_router)
+app.include_router(strategy_router)

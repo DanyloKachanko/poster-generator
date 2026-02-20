@@ -230,6 +230,32 @@ CREATE TABLE IF NOT EXISTS mockup_templates (
     corners TEXT NOT NULL,
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS strategy_plans (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS strategy_items (
+    id SERIAL PRIMARY KEY,
+    plan_id INTEGER NOT NULL REFERENCES strategy_plans(id) ON DELETE CASCADE,
+    prompt TEXT NOT NULL,
+    description TEXT,
+    style TEXT,
+    preset TEXT,
+    model_id TEXT NOT NULL DEFAULT 'phoenix',
+    size_id TEXT NOT NULL DEFAULT 'poster_4_5',
+    title_hint TEXT,
+    status TEXT NOT NULL DEFAULT 'planned',
+    generation_id TEXT,
+    printify_product_id TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_strategy_items_plan ON strategy_items(plan_id);
 """
 
 
