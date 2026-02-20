@@ -239,6 +239,18 @@ class DovShopClient:
             response.raise_for_status()
             return True
 
+    async def get_categories(self) -> List[dict]:
+        """Get all categories from DovShop"""
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/categories",
+                headers=self.headers,
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else data.get("categories", [])
+
     async def bulk_sync(self, posters: list[dict]) -> dict:
         """Bulk sync posters to DovShop.
 
