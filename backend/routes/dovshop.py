@@ -2,13 +2,33 @@
 
 import json
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from deps import dovshop_client
 from categorizer import categorize_product
 from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
 import re as _re
+
+
+def _get_base_url(request: Request) -> str:
+    """Build public base URL from proxy headers."""
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
+    return f"{scheme}://{host}"
+
+
+async def _get_mockup_images(pool, source_image_id: int | None, base_url: str) -> list[str]:
+    """Get mockup serve URLs for a product, using our own serve endpoint."""
+    if not source_image_id:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id FROM image_mockups
+            WHERE image_id = $1 AND is_included = true
+            ORDER BY rank ASC
+        """, source_image_id)
+    return [f"{base_url}/mockups/serve/{r['id']}" for r in rows]
 
 
 def _transform_product(p: dict) -> dict:
@@ -119,13 +139,13 @@ async def list_dovshop_products():
 
 
 @router.post("/dovshop/push")
-async def push_product_to_dovshop(request: PushProductRequest):
+async def push_product_to_dovshop(request: PushProductRequest, req: Request):
     """Push a product from the panel to DovShop.
 
     Workflow:
     1. Fetch product from panel database
     2. Build Etsy URL from etsy_listing_id
-    3. Create poster on DovShop with image URL
+    3. Create poster on DovShop with mockup serve URLs
     4. Save DovShop ID back to our DB
     """
     if not dovshop_client.is_configured:
@@ -137,26 +157,33 @@ async def push_product_to_dovshop(request: PushProductRequest):
         if not product:
             raise HTTPException(status_code=404, detail="Product not found in database")
 
-        image_url = product.get("image_url") or ""
-        if not image_url:
-            raise HTTPException(status_code=404, detail="Product has no image")
+        # Step 2: Build images from our mockup serve endpoint
+        base_url = _get_base_url(req)
+        pool = await db.get_pool()
+        images = await _get_mockup_images(pool, product.get("source_image_id"), base_url)
+        if not images:
+            # Fallback to original image
+            image_url = product.get("image_url") or ""
+            if not image_url:
+                raise HTTPException(status_code=404, detail="Product has no image")
+            images = [image_url]
 
-        # Step 2: Build Etsy URL if available
+        # Step 3: Build Etsy URL if available
         etsy_listing_id = product.get("etsy_listing_id")
         etsy_url = f"https://www.etsy.com/listing/{etsy_listing_id}" if etsy_listing_id else ""
 
-        # Step 3: Create poster on DovShop
+        # Step 4: Create poster on DovShop
         name = request.title or product["title"]
         dovshop_product = await dovshop_client.push_product(
             name=name,
-            images=[image_url],
+            images=images,
             etsy_url=etsy_url,
             featured=request.featured,
             description=request.description or product.get("description", ""),
             tags=request.tags or product.get("tags", []),
             price=request.price or 0,
             external_id=request.printify_product_id,
-            preferred_mockup_url=product.get("preferred_mockup_url") or "",
+            preferred_mockup_url=images[0] if images else "",
         )
 
         # Step 4: Save DovShop product ID to our DB
@@ -244,7 +271,7 @@ async def delete_dovshop_collection(collection_id: str):
 
 
 @router.post("/dovshop/sync")
-async def sync_all_to_dovshop():
+async def sync_all_to_dovshop(req: Request):
     """Bulk sync all published products to DovShop with auto-categorization.
 
     Gathers all products with etsy_listing_id (published on Etsy),
@@ -283,23 +310,9 @@ async def sync_all_to_dovshop():
             style = product.get("gen_style") or None
             categories = categorize_product(tags, style)
 
-            # Get mockup images from image_mockups table
-            images = []
-            mockup_url = product.get("preferred_mockup_url")
-            if mockup_url:
-                images.append(mockup_url)
-
-            # Also get etsy CDN mockup URLs
-            async with pool.acquire() as conn:
-                mockup_rows = await conn.fetch("""
-                    SELECT etsy_cdn_url FROM image_mockups
-                    WHERE image_id = $1 AND etsy_cdn_url IS NOT NULL AND is_included = true
-                    ORDER BY rank ASC
-                """, product.get("source_image_id") or 0)
-            for mr in mockup_rows:
-                url = mr["etsy_cdn_url"]
-                if url and url not in images:
-                    images.append(url)
+            # Get mockup images from our serve endpoint
+            base_url = _get_base_url(req)
+            images = await _get_mockup_images(pool, product.get("source_image_id"), base_url)
 
             # Fallback to original image
             if not images and product.get("image_url"):
@@ -323,7 +336,7 @@ async def sync_all_to_dovshop():
                 "etsy_url": etsy_url,
                 "etsy_listing_id": etsy_listing_id,
                 "printify_id": product.get("printify_product_id"),
-                "mockup_url": mockup_url,
+                "mockup_url": images[0] if images else None,
                 "sizes": enabled_sizes,
                 "style": style,
                 "categories": categories,
