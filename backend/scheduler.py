@@ -450,42 +450,113 @@ class PublishScheduler:
 
         # --- Step 3: Upload multi-mockup images ---
         source_image_id = (local_product or {}).get("source_image_id")
+
+        # Fallback: if no source_image_id, try to get poster URL from Printify
+        poster_url = None
+        row = None
         if source_image_id:
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT url, mockup_status FROM generated_images WHERE id = $1",
+                    source_image_id,
+                )
+            if row:
+                poster_url = row["url"]
+        if not poster_url and product:
+            # Extract uploaded image from Printify print_areas
+            for pa in product.get("print_areas", []):
+                for ph in pa.get("placeholders", []):
+                    imgs = ph.get("images", [])
+                    if imgs:
+                        poster_url = imgs[0].get("src")
+                        break
+                if poster_url:
+                    break
+
+        if poster_url:
             try:
                 import base64 as b64_mod
-                pool = await db.get_pool()
-                async with pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT url, mockup_status FROM generated_images WHERE id = $1",
-                        source_image_id,
+
+                # Check for pre-composed image_mockups (only if approved)
+                included = []
+                if source_image_id and row and row["mockup_status"] == "approved":
+                    mockups = await db.get_image_mockups(source_image_id)
+                    included = [m for m in mockups if m.get("is_included", True)]
+
+                if included:
+                    # Use existing pre-composed mockups
+                    mockup_entries = []
+                    for m in included:
+                        data_url = m["mockup_data"]
+                        if data_url.startswith("data:image"):
+                            mockup_bytes = b64_mod.b64decode(data_url.split(",", 1)[1])
+                        else:
+                            async with httpx.AsyncClient() as client:
+                                resp = await client.get(data_url, timeout=30.0, follow_redirects=True)
+                                resp.raise_for_status()
+                                mockup_bytes = resp.content
+                        mockup_entries.append((m["id"], mockup_bytes))
+
+                    from routes.mockups import _upload_multi_images_to_etsy
+                    upload_results = await _upload_multi_images_to_etsy(
+                        access_token, shop_id, etsy_listing_id,
+                        poster_url, mockup_entries,
+                        has_existing_images=sync_images,
                     )
-
-                if not row:
-                    logger.info("No source image row for %s, skipping mockup upload", printify_product_id)
+                    for ur in upload_results:
+                        if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
+                            await db.update_image_mockup_etsy_info(
+                                ur["mockup_db_id"], ur["etsy_image_id"], ur.get("etsy_cdn_url", "")
+                            )
+                    for ur in upload_results:
+                        if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
+                            await db.set_product_preferred_mockup(printify_product_id, ur["etsy_cdn_url"])
+                            break
+                    logger.info("Uploaded %d images for %s (etsy=%s) from pre-composed mockups",
+                                len(upload_results), printify_product_id, etsy_listing_id)
                 else:
-                    poster_url = row["url"]
+                    # Compose on-the-fly — prefer default pack
+                    default_pack_str = await db.get_setting("default_pack_id")
+                    if default_pack_str:
+                        compose_pack_id = int(default_pack_str)
+                        active_templates = await db.get_pack_templates(compose_pack_id)
+                    elif source_image_id:
+                        compose_pack_id = await db.get_image_mockup_pack_id(source_image_id)
+                        if compose_pack_id:
+                            active_templates = await db.get_pack_templates(compose_pack_id)
+                        else:
+                            active_templates = await db.get_active_mockup_templates()
+                            compose_pack_id = None
+                    else:
+                        active_templates = await db.get_active_mockup_templates()
+                        compose_pack_id = None
 
-                    # Check for pre-composed image_mockups (only if approved)
-                    included = []
-                    if row["mockup_status"] == "approved":
-                        mockups = await db.get_image_mockups(source_image_id)
-                        included = [m for m in mockups if m.get("is_included", True)]
+                    if active_templates:
+                        import json as json_mod
+                        for t in active_templates:
+                            if isinstance(t.get("corners"), str):
+                                t["corners"] = json_mod.loads(t["corners"])
 
-                    if included:
-                        # Use existing pre-composed mockups
+                        from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
+                        composed = await _compose_all_templates(poster_url, active_templates)
+
                         mockup_entries = []
-                        for m in included:
-                            data_url = m["mockup_data"]
-                            if data_url.startswith("data:image"):
-                                mockup_bytes = b64_mod.b64decode(data_url.split(",", 1)[1])
+                        for rank_idx, (tid, png_bytes) in enumerate(composed, start=2):
+                            if source_image_id:
+                                b64_str = b64_mod.b64encode(png_bytes).decode()
+                                saved = await db.save_image_mockup(
+                                    image_id=source_image_id,
+                                    template_id=tid,
+                                    mockup_data=f"data:image/png;base64,{b64_str}",
+                                    rank=rank_idx,
+                                    pack_id=compose_pack_id,
+                                )
+                                mockup_entries.append((saved["id"], png_bytes))
                             else:
-                                async with httpx.AsyncClient() as client:
-                                    resp = await client.get(data_url, timeout=30.0, follow_redirects=True)
-                                    resp.raise_for_status()
-                                    mockup_bytes = resp.content
-                            mockup_entries.append((m["id"], mockup_bytes))
+                                # No source image in DB — upload without saving mockup record
+                                mockup_entries.append((None, png_bytes))
 
-                        from routes.mockups import _upload_multi_images_to_etsy
                         upload_results = await _upload_multi_images_to_etsy(
                             access_token, shop_id, etsy_listing_id,
                             poster_url, mockup_entries,
@@ -500,66 +571,16 @@ class PublishScheduler:
                             if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
                                 await db.set_product_preferred_mockup(printify_product_id, ur["etsy_cdn_url"])
                                 break
-                        logger.info("Uploaded %d images for %s (etsy=%s) from pre-composed mockups",
-                                    len(upload_results), printify_product_id, etsy_listing_id)
+                        logger.info("Composed + uploaded %d images for %s (etsy=%s) via pack=%s (source_image=%s)",
+                                    len(upload_results), printify_product_id, etsy_listing_id,
+                                    compose_pack_id, source_image_id or "printify-fallback")
                     else:
-                        # Compose on-the-fly — prefer default pack
-                        default_pack_str = await db.get_setting("default_pack_id")
-                        if default_pack_str:
-                            compose_pack_id = int(default_pack_str)
-                            active_templates = await db.get_pack_templates(compose_pack_id)
-                        else:
-                            compose_pack_id = await db.get_image_mockup_pack_id(source_image_id)
-                            if compose_pack_id:
-                                active_templates = await db.get_pack_templates(compose_pack_id)
-                            else:
-                                active_templates = await db.get_active_mockup_templates()
-                                compose_pack_id = None
-
-                        if active_templates:
-                            import json as json_mod
-                            for t in active_templates:
-                                if isinstance(t.get("corners"), str):
-                                    t["corners"] = json_mod.loads(t["corners"])
-
-                            from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
-                            composed = await _compose_all_templates(poster_url, active_templates)
-
-                            mockup_entries = []
-                            for rank_idx, (tid, png_bytes) in enumerate(composed, start=2):
-                                b64_str = b64_mod.b64encode(png_bytes).decode()
-                                saved = await db.save_image_mockup(
-                                    image_id=source_image_id,
-                                    template_id=tid,
-                                    mockup_data=f"data:image/png;base64,{b64_str}",
-                                    rank=rank_idx,
-                                    pack_id=compose_pack_id,
-                                )
-                                mockup_entries.append((saved["id"], png_bytes))
-
-                            upload_results = await _upload_multi_images_to_etsy(
-                                access_token, shop_id, etsy_listing_id,
-                                poster_url, mockup_entries,
-                                has_existing_images=sync_images,
-                            )
-                            for ur in upload_results:
-                                if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
-                                    await db.update_image_mockup_etsy_info(
-                                        ur["mockup_db_id"], ur["etsy_image_id"], ur.get("etsy_cdn_url", "")
-                                    )
-                            for ur in upload_results:
-                                if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
-                                    await db.set_product_preferred_mockup(printify_product_id, ur["etsy_cdn_url"])
-                                    break
-                            logger.info("Composed + uploaded %d images for %s (etsy=%s) via pack=%s",
-                                        len(upload_results), printify_product_id, etsy_listing_id, compose_pack_id)
-                        else:
-                            logger.info("No active templates for %s, skipping mockup upload",
-                                        printify_product_id)
+                        logger.info("No active templates for %s, skipping mockup upload",
+                                    printify_product_id)
             except Exception as e:
                 logger.error("Failed to upload mockup images for %s: %s", printify_product_id, e)
         else:
-            logger.info("No source_image_id for %s, skipping mockup upload", printify_product_id)
+            logger.info("No poster URL found for %s, skipping mockup upload", printify_product_id)
 
     # ------------------------------------------------------------------
     # Mockup catch-up — fill missing etsy_listing_ids + apply mockups
@@ -568,7 +589,8 @@ class PublishScheduler:
     async def _catchup_mockups(self):
         """Periodic check: find published products missing etsy_listing_id or mockups.
 
-        Two passes:
+        Three passes:
+        0. Auto-import orphan scheduled_products (published but not in products table)
         1. Fill missing etsy_listing_ids from Printify
         2. Compose + upload mockups for products that have etsy_listing_id but no mockups on Etsy
         """
@@ -576,6 +598,28 @@ class PublishScheduler:
         import json as json_mod
 
         pool = await db.get_pool()
+
+        # --- Pass 0: auto-import orphan scheduled_products ---
+        async with pool.acquire() as conn:
+            orphans = await conn.fetch(
+                """
+                SELECT sp.printify_product_id, sp.title
+                FROM scheduled_products sp
+                WHERE sp.status = 'published'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM products p WHERE p.printify_product_id = sp.printify_product_id
+                  )
+                """
+            )
+        for orphan in orphans:
+            pid = orphan["printify_product_id"]
+            try:
+                from routes.products import _import_printify_product
+                p = await self.printify.get_product(pid)
+                await _import_printify_product(p)
+                logger.info("[catchup] Auto-imported orphan product %s (%s)", pid, orphan["title"][:40])
+            except Exception as e:
+                logger.warning("[catchup] Failed to import orphan %s: %s", pid, e)
 
         # --- Pass 1: fill missing etsy_listing_ids ---
         async with pool.acquire() as conn:
