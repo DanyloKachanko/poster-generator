@@ -2635,6 +2635,75 @@ export async function syncAllToDovShop(): Promise<DovShopSyncResponse> {
   return response.json();
 }
 
+// --- DovShop AI ---
+
+export interface DovShopEnrichResult {
+  categories: string[];
+  collection_name: string | null;
+  seo_description: string;
+  featured: boolean;
+}
+
+export interface DovShopStrategyResult {
+  new_collections: { name: string; description: string; poster_ids: number[] }[];
+  feature_recommendations: { id: number; title: string; reason: string }[];
+  category_gaps: { slug: string; suggestion: string }[];
+  seo_improvements: { id: number; title: string; suggested_desc: string }[];
+  summary: string;
+}
+
+export async function getDovShopAIEnrich(printifyProductId: string): Promise<DovShopEnrichResult> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/ai-enrich`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ printify_product_id: printifyProductId }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'AI enrichment failed' }));
+    throw new Error(error.detail || 'AI enrichment failed');
+  }
+  return response.json();
+}
+
+export async function getDovShopAIStrategy(): Promise<DovShopStrategyResult> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/ai-strategy`, { method: 'POST' });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Strategy analysis failed' }));
+    throw new Error(error.detail || 'Strategy analysis failed');
+  }
+  return response.json();
+}
+
+export async function applyDovShopCollection(data: { name: string; description?: string; poster_ids?: number[] }): Promise<{ success: boolean; collection_id: number; assigned: number }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/apply-collection`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to apply collection');
+  return response.json();
+}
+
+export async function applyDovShopFeature(posterId: number, featured: boolean): Promise<{ success: boolean }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/apply-feature`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ poster_id: posterId, featured }),
+  });
+  if (!response.ok) throw new Error('Failed to apply feature');
+  return response.json();
+}
+
+export async function applyDovShopSeo(posterId: number, description: string): Promise<{ success: boolean }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/apply-seo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ poster_id: posterId, description }),
+  });
+  if (!response.ok) throw new Error('Failed to apply SEO');
+  return response.json();
+}
+
 // === Strategy ===
 
 export interface StrategyPlan {
