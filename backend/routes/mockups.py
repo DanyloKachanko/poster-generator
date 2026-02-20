@@ -554,7 +554,7 @@ async def _upload_multi_images_to_etsy(
             resp_data = await etsy.upload_listing_image(
                 access_token=access_token, shop_id=shop_id,
                 listing_id=listing_id, image_bytes=mockup_bytes,
-                filename=f"mockup_{mockup_db_id}.png", rank=rank,
+                filename=f"mockup_{mockup_db_id or rank}.png", rank=rank,
             )
             upload_results.append({
                 "type": "mockup", "mockup_db_id": mockup_db_id, "rank": rank,
