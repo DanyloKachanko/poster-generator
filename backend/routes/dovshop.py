@@ -19,14 +19,14 @@ def _get_base_url(request: Request) -> str:
 
 
 async def _get_mockup_images(pool, source_image_id: int | None, base_url: str) -> list[str]:
-    """Get mockup serve URLs for a product, using our own serve endpoint."""
+    """Get mockup serve URLs for DovShop, primary first then by rank."""
     if not source_image_id:
         return []
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT id FROM image_mockups
-            WHERE image_id = $1 AND is_included = true
-            ORDER BY rank ASC
+            WHERE image_id = $1 AND dovshop_included = true
+            ORDER BY dovshop_primary DESC, rank ASC
         """, source_image_id)
     return [f"{base_url}/mockups/serve/{r['id']}" for r in rows]
 
@@ -364,6 +364,128 @@ async def sync_all_to_dovshop(req: Request):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+# === Product Mockup Management ===
+
+
+@router.get("/dovshop/product-mockups/{printify_product_id}")
+async def get_product_mockups_for_dovshop(printify_product_id: str, req: Request):
+    """Get all mockups for a product with both is_included and dovshop_included flags."""
+    product = await db.get_product_by_printify_id(printify_product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    source_image_id = product.get("source_image_id")
+    if not source_image_id:
+        return {"mockups": [], "printify_product_id": printify_product_id}
+
+    mockups = await db.get_image_mockups_for_dovshop(source_image_id)
+    base_url = _get_base_url(req)
+    for m in mockups:
+        m["thumbnail_url"] = f"{base_url}/mockups/serve/{m['id']}"
+    return {"mockups": mockups, "printify_product_id": printify_product_id}
+
+
+@router.post("/dovshop/update-product-images/{printify_product_id}")
+async def update_dovshop_product_images(printify_product_id: str, req: Request):
+    """Re-sync mockup images to DovShop based on dovshop_included flags."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    product = await db.get_product_by_printify_id(printify_product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    dovshop_product_id = product.get("dovshop_product_id")
+    if not dovshop_product_id:
+        raise HTTPException(status_code=400, detail="Product not on DovShop")
+
+    base_url = _get_base_url(req)
+    pool = await db.get_pool()
+    images = await _get_mockup_images(pool, product.get("source_image_id"), base_url)
+    if not images:
+        raise HTTPException(status_code=400, detail="No mockups selected for DovShop")
+
+    await dovshop_client.update_product(dovshop_product_id, {
+        "images": images,
+        "mockupUrl": images[0],
+    })
+
+    return {"success": True, "image_count": len(images), "printify_product_id": printify_product_id}
+
+
+# === Pack Pattern Assignment ===
+
+
+class AssignPackPatternRequest(BaseModel):
+    start_offset: int = 0
+
+
+@router.post("/dovshop/assign-pack-pattern")
+async def assign_pack_pattern(request: AssignPackPatternRequest, req: Request):
+    """Rotate the primary (hero) mockup across DovShop products for visual diversity.
+
+    For all products on DovShop, cycles through their included mockups and sets
+    a different one as dovshop_primary for each product. This makes every product
+    look different on the storefront (product 1 → mockup 2, product 2 → mockup 3, etc.).
+
+    start_offset shifts which mockup index the first product starts at.
+    """
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    pool = await db.get_pool()
+
+    # Get all products on DovShop, ordered by created_at
+    async with pool.acquire() as conn:
+        products = await conn.fetch("""
+            SELECT p.printify_product_id, p.dovshop_product_id, p.source_image_id
+            FROM products p
+            WHERE p.dovshop_product_id IS NOT NULL
+            ORDER BY p.created_at ASC
+        """)
+
+    total = len(products)
+    updated = 0
+    base_url = _get_base_url(req)
+
+    for idx, product in enumerate(products):
+        source_image_id = product["source_image_id"]
+        if not source_image_id:
+            continue
+
+        # Get included mockups for this product
+        async with pool.acquire() as conn:
+            mockups = await conn.fetch(
+                "SELECT id FROM image_mockups WHERE image_id = $1 AND dovshop_included = true ORDER BY rank",
+                source_image_id,
+            )
+
+        if not mockups:
+            continue
+
+        # Pick primary by cycling: product index + offset mod number of mockups
+        primary_idx = (idx + request.start_offset) % len(mockups)
+        primary_id = mockups[primary_idx]["id"]
+
+        # Set primary (unsets others for this image)
+        await db.set_image_mockup_dovshop_primary(primary_id, source_image_id)
+
+        # Re-sync to DovShop (primary first in image list)
+        dovshop_product_id = product["dovshop_product_id"]
+        images = await _get_mockup_images(pool, source_image_id, base_url)
+        if images and dovshop_product_id:
+            try:
+                await dovshop_client.update_product(dovshop_product_id, {
+                    "images": images,
+                    "mockupUrl": images[0],
+                })
+                updated += 1
+            except Exception as e:
+                print(f"[pack-pattern] Failed to update DovShop product {dovshop_product_id}: {e}")
+
+    return {"total": total, "updated": updated}
 
 
 # === AI Endpoints ===

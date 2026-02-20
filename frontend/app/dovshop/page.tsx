@@ -17,9 +17,15 @@ import {
   applyDovShopCollection,
   applyDovShopFeature,
   applyDovShopSeo,
+  getProductMockupsForDovShop,
+  toggleDovShopMockup,
+  setDovShopPrimary,
+  updateDovShopProductImages,
+  assignPackPattern,
   type DovShopStatus,
   type DovShopProduct,
   type DovShopCollection,
+  type DovShopMockup,
   type TrackedProduct,
   type DovShopSyncResponse,
   type DovShopStrategyResult,
@@ -57,6 +63,17 @@ export default function DovShopPage() {
   // Sync tab
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<DovShopSyncResponse | null>(null);
+
+  // Mockup selector (per-product)
+  const [expandedMockups, setExpandedMockups] = useState<string | null>(null);
+  const [productMockups, setProductMockups] = useState<DovShopMockup[]>([]);
+  const [mockupsLoading, setMockupsLoading] = useState(false);
+  const [savingMockups, setSavingMockups] = useState<string | null>(null);
+
+  // Pack patterns (rotate primary mockup)
+  const [packOffset, setPackOffset] = useState(0);
+  const [applyingPattern, setApplyingPattern] = useState(false);
+  const [patternResult, setPatternResult] = useState<{ total: number; updated: number } | null>(null);
 
   // Strategy tab
   const [strategy, setStrategy] = useState<DovShopStrategyResult | null>(null);
@@ -213,6 +230,54 @@ export default function DovShopPage() {
     setAppliedActions(new Set());
   };
 
+  // Mockup selector handlers
+  const handleExpandMockups = async (printifyId: string) => {
+    if (expandedMockups === printifyId) {
+      setExpandedMockups(null);
+      setProductMockups([]);
+      return;
+    }
+    setExpandedMockups(printifyId);
+    setMockupsLoading(true);
+    try {
+      const data = await getProductMockupsForDovShop(printifyId);
+      setProductMockups(data.mockups);
+    } catch (err) { setError((err as Error).message); }
+    finally { setMockupsLoading(false); }
+  };
+
+  const handleToggleDovShopMockup = async (mockupId: number, currentVal: boolean) => {
+    try {
+      await toggleDovShopMockup(mockupId, !currentVal);
+      setProductMockups(prev => prev.map(m => m.id === mockupId ? { ...m, dovshop_included: !currentVal } : m));
+    } catch (err) { setError((err as Error).message); }
+  };
+
+  const handleSetPrimary = async (mockupId: number) => {
+    try {
+      await setDovShopPrimary(mockupId);
+      setProductMockups(prev => prev.map(m => ({ ...m, dovshop_primary: m.id === mockupId })));
+    } catch (err) { setError((err as Error).message); }
+  };
+
+  const handleSaveMockupsToDovShop = async (printifyId: string) => {
+    setSavingMockups(printifyId);
+    try {
+      await updateDovShopProductImages(printifyId);
+    } catch (err) { setError((err as Error).message); }
+    finally { setSavingMockups(null); }
+  };
+
+  const handleApplyPattern = async () => {
+    setApplyingPattern(true);
+    setPatternResult(null);
+    try {
+      const result = await assignPackPattern(packOffset);
+      setPatternResult(result);
+    } catch (err) { setError((err as Error).message); }
+    finally { setApplyingPattern(false); }
+  };
+
   const handleApplyCollection = async (name: string, description: string, posterIds: number[]) => {
     const key = `coll-${name}`;
     setApplyingAction(key);
@@ -303,6 +368,28 @@ export default function DovShopPage() {
       {/* === Products Tab === */}
       {tab === 'products' && (
         <div className="space-y-4">
+          {/* Rotate Primary Mockup */}
+          <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+            <h3 className="text-sm font-medium text-gray-200 mb-1">Rotate Primary Mockup</h3>
+            <p className="text-xs text-gray-500 mb-3">Cycle through mockups so each product has a different hero image on the storefront</p>
+            <div className="flex items-end gap-3 flex-wrap">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Start offset</label>
+                <input type="number" min={0} max={20} value={packOffset} onChange={e => setPackOffset(Number(e.target.value))}
+                  className="w-16 px-2 py-1.5 bg-dark-bg border border-dark-border rounded text-sm text-gray-200 focus:outline-none focus:border-accent" />
+              </div>
+              <button onClick={handleApplyPattern} disabled={applyingPattern}
+                className="px-4 py-1.5 bg-accent/15 hover:bg-accent/25 border border-accent/30 rounded text-accent text-sm font-medium disabled:opacity-50">
+                {applyingPattern ? 'Applying...' : 'Rotate Primaries'}
+              </button>
+              {patternResult && (
+                <span className="text-xs text-gray-400">
+                  {patternResult.updated}/{patternResult.total} products updated
+                </span>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-medium text-gray-200">Products on DovShop ({products.length})</h2>
             <button onClick={loadProducts} disabled={productsLoading}
@@ -318,39 +405,94 @@ export default function DovShopPage() {
           ) : (
             <div className="space-y-2">
               {products.map(p => (
-                <div key={p.id} className="flex items-center gap-4 p-3 bg-dark-card border border-dark-border rounded-lg hover:bg-dark-hover transition-colors">
-                  <div className="w-12 h-12 rounded bg-dark-bg overflow-hidden flex-shrink-0">
-                    {p.image_url && <img src={p.image_url} alt={p.title} className="w-full h-full object-cover" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-medium text-gray-200 truncate">{p.title}</h3>
-                      {p.featured && <span className="text-xs text-yellow-400 bg-yellow-500/10 px-1.5 py-0.5 rounded">featured</span>}
+                <div key={p.id} className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+                  <div className="flex items-center gap-4 p-3 hover:bg-dark-hover transition-colors">
+                    <div className="w-12 h-12 rounded bg-dark-bg overflow-hidden flex-shrink-0">
+                      {p.image_url && <img src={p.image_url} alt={p.title} className="w-full h-full object-cover" />}
                     </div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {p.categories?.map(c => (
-                        <span key={c} className="text-xs text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded">{c}</span>
-                      ))}
-                      {p.collection && (
-                        <span className="text-xs text-purple-400/80 bg-purple-500/10 px-1.5 py-0.5 rounded">{p.collection.name}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-medium text-gray-200 truncate">{p.title}</h3>
+                        {p.featured && <span className="text-xs text-yellow-400 bg-yellow-500/10 px-1.5 py-0.5 rounded">featured</span>}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {p.categories?.map(c => (
+                          <span key={c} className="text-xs text-blue-400/80 bg-blue-500/10 px-1.5 py-0.5 rounded">{c}</span>
+                        ))}
+                        {p.collection && (
+                          <span className="text-xs text-purple-400/80 bg-purple-500/10 px-1.5 py-0.5 rounded">{p.collection.name}</span>
+                        )}
+                        {p.price > 0 && <span className="text-xs text-gray-500">${p.price.toFixed(0)}+</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {p.printify_id && (
+                        <button onClick={() => handleExpandMockups(p.printify_id!)}
+                          className={`px-2 py-1 text-xs border rounded transition-colors ${expandedMockups === p.printify_id ? 'text-accent bg-accent/10 border-accent/30' : 'text-gray-400 border-dark-border hover:text-gray-200'}`}>
+                          Mockups
+                        </button>
                       )}
-                      {p.price > 0 && <span className="text-xs text-gray-500">${p.price.toFixed(0)}+</span>}
+                      {p.slug && (
+                        <a href={`https://dovshop.org/poster/${p.slug}`} target="_blank" rel="noopener noreferrer"
+                          className="px-2 py-1 text-xs text-accent hover:text-accent/80 border border-accent/30 rounded">Site</a>
+                      )}
+                      {p.etsy_url && (
+                        <a href={p.etsy_url} target="_blank" rel="noopener noreferrer"
+                          className="px-2 py-1 text-xs text-orange-400 hover:text-orange-300 border border-orange-500/30 rounded">Etsy</a>
+                      )}
+                      <button onClick={() => handleDeleteProduct(p.id)} disabled={deletingProduct === p.id}
+                        className="px-2 py-1 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded disabled:opacity-50">
+                        {deletingProduct === p.id ? '...' : 'Del'}
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {p.slug && (
-                      <a href={`https://dovshop.org/poster/${p.slug}`} target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-1 text-xs text-accent hover:text-accent/80 border border-accent/30 rounded">Site</a>
-                    )}
-                    {p.etsy_url && (
-                      <a href={p.etsy_url} target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-1 text-xs text-orange-400 hover:text-orange-300 border border-orange-500/30 rounded">Etsy</a>
-                    )}
-                    <button onClick={() => handleDeleteProduct(p.id)} disabled={deletingProduct === p.id}
-                      className="px-2 py-1 text-xs text-red-400 hover:text-red-300 border border-red-500/30 rounded disabled:opacity-50">
-                      {deletingProduct === p.id ? '...' : 'Del'}
-                    </button>
-                  </div>
+
+                  {/* Mockup selector panel */}
+                  {expandedMockups === p.printify_id && (
+                    <div className="border-t border-dark-border p-3 bg-dark-bg/50">
+                      {mockupsLoading ? (
+                        <div className="text-sm text-gray-400 py-2">Loading mockups...</div>
+                      ) : productMockups.length === 0 ? (
+                        <div className="text-sm text-gray-500 py-2">No mockups for this product.</div>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs text-gray-400">
+                              {productMockups.filter(m => m.dovshop_included).length}/{productMockups.length} mockups selected for DovShop
+                            </span>
+                            <button onClick={() => handleSaveMockupsToDovShop(p.printify_id!)}
+                              disabled={savingMockups === p.printify_id}
+                              className="px-3 py-1 bg-accent/15 hover:bg-accent/25 border border-accent/30 rounded text-accent text-xs font-medium disabled:opacity-50">
+                              {savingMockups === p.printify_id ? 'Saving...' : 'Save to DovShop'}
+                            </button>
+                          </div>
+                          <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                            {productMockups.map(m => (
+                              <div key={m.id} className={`relative aspect-[4/5] rounded overflow-hidden border-2 transition-colors ${m.dovshop_primary ? 'border-yellow-400' : m.dovshop_included ? 'border-green-500' : 'border-dark-border opacity-50'}`}>
+                                <button onClick={() => handleToggleDovShopMockup(m.id, m.dovshop_included)}
+                                  className="w-full h-full">
+                                  <img src={m.thumbnail_url} alt={`Mockup ${m.id}`} className="w-full h-full object-cover" />
+                                  {!m.dovshop_included && <div className="absolute inset-0 bg-black/30" />}
+                                </button>
+                                {m.dovshop_included && (
+                                  <div className="absolute top-1 right-1 w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                    <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                                  </div>
+                                )}
+                                {m.dovshop_included && (
+                                  <button onClick={() => handleSetPrimary(m.id)}
+                                    title={m.dovshop_primary ? 'Primary image' : 'Set as primary'}
+                                    className={`absolute top-1 left-1 w-5 h-5 rounded-full flex items-center justify-center transition-colors ${m.dovshop_primary ? 'bg-yellow-400 text-black' : 'bg-black/50 text-gray-300 hover:bg-yellow-400/80 hover:text-black'}`}>
+                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" /></svg>
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

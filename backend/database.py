@@ -451,6 +451,22 @@ async def init_db():
         except asyncpg.exceptions.DuplicateColumnError:
             pass
 
+        # dovshop_included on image_mockups (separate from Etsy's is_included)
+        try:
+            await conn.execute(
+                "ALTER TABLE image_mockups ADD COLUMN dovshop_included BOOLEAN DEFAULT true"
+            )
+        except asyncpg.exceptions.DuplicateColumnError:
+            pass
+
+        # dovshop_primary on image_mockups (hero image for DovShop)
+        try:
+            await conn.execute(
+                "ALTER TABLE image_mockups ADD COLUMN dovshop_primary BOOLEAN DEFAULT false"
+            )
+        except asyncpg.exceptions.DuplicateColumnError:
+            pass
+
         # AI strategy history
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS ai_strategy_history (
@@ -1922,6 +1938,45 @@ async def update_image_mockup_inclusion(mockup_id: int, is_included: bool) -> bo
             is_included, mockup_id,
         )
         return result != "UPDATE 0"
+
+
+async def update_image_mockup_dovshop_inclusion(mockup_id: int, dovshop_included: bool) -> bool:
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE image_mockups SET dovshop_included = $1 WHERE id = $2",
+            dovshop_included, mockup_id,
+        )
+        return result != "UPDATE 0"
+
+
+async def set_image_mockup_dovshop_primary(mockup_id: int, image_id: int) -> bool:
+    """Set a mockup as dovshop primary, unsetting all others for that image."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE image_mockups SET dovshop_primary = false WHERE image_id = $1",
+            image_id,
+        )
+        result = await conn.execute(
+            "UPDATE image_mockups SET dovshop_primary = true WHERE id = $1",
+            mockup_id,
+        )
+        return result != "UPDATE 0"
+
+
+async def get_image_mockups_for_dovshop(image_id: int) -> List[Dict[str, Any]]:
+    """Get mockups for an image with is_included, dovshop_included, and dovshop_primary flags."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, template_id, rank, is_included, dovshop_included, dovshop_primary
+               FROM image_mockups
+               WHERE image_id = $1
+               ORDER BY rank""",
+            image_id,
+        )
+        return [dict(r) for r in rows]
 
 
 async def update_image_mockup_etsy_info(

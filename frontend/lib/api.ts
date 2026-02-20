@@ -2725,6 +2725,65 @@ export async function applyDovShopSeo(posterId: number, description: string): Pr
   return response.json();
 }
 
+// === DovShop Mockup Management ===
+
+export interface DovShopMockup {
+  id: number;
+  template_id: number;
+  rank: number;
+  is_included: boolean;
+  dovshop_included: boolean;
+  dovshop_primary: boolean;
+  thumbnail_url: string;
+}
+
+export async function getProductMockupsForDovShop(printifyProductId: string): Promise<{ mockups: DovShopMockup[]; printify_product_id: string }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/product-mockups/${printifyProductId}`);
+  if (!response.ok) throw new Error('Failed to fetch product mockups');
+  return response.json();
+}
+
+export async function setDovShopPrimary(mockupId: number): Promise<{ mockup_id: number; dovshop_primary: boolean }> {
+  const response = await apiFetch(`${getApiUrl()}/mockups/workflow/set-dovshop-primary/${mockupId}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to set primary mockup');
+  return response.json();
+}
+
+export async function toggleDovShopMockup(mockupId: number, included: boolean): Promise<{ mockup_id: number; dovshop_included: boolean }> {
+  const response = await apiFetch(`${getApiUrl()}/mockups/workflow/toggle-dovshop-mockup/${mockupId}?dovshop_included=${included}`, {
+    method: 'POST',
+  });
+  if (!response.ok) throw new Error('Failed to toggle mockup');
+  return response.json();
+}
+
+export async function updateDovShopProductImages(printifyProductId: string): Promise<{ success: boolean; image_count: number }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/update-product-images/${printifyProductId}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to update images' }));
+    throw new Error(error.detail || 'Failed to update images');
+  }
+  return response.json();
+}
+
+export async function assignPackPattern(startOffset: number = 0): Promise<{ total: number; updated: number }> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/assign-pack-pattern`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start_offset: startOffset }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Failed to assign pattern' }));
+    throw new Error(error.detail || 'Failed to assign pattern');
+  }
+  return response.json();
+}
+
+
 // === Strategy ===
 
 export interface StrategyPlan {

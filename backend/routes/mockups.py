@@ -1322,6 +1322,29 @@ async def toggle_mockup_inclusion(mockup_id: int, is_included: bool = True):
     return {"mockup_id": mockup_id, "is_included": is_included}
 
 
+@router.post("/mockups/workflow/toggle-dovshop-mockup/{mockup_id}")
+async def toggle_dovshop_mockup(mockup_id: int, dovshop_included: bool = True):
+    """Toggle whether a specific mockup is included on DovShop (separate from Etsy)."""
+    success = await db.update_image_mockup_dovshop_inclusion(mockup_id, dovshop_included)
+    if not success:
+        raise HTTPException(status_code=404, detail="Mockup not found")
+    return {"mockup_id": mockup_id, "dovshop_included": dovshop_included}
+
+
+@router.post("/mockups/workflow/set-dovshop-primary/{mockup_id}")
+async def set_dovshop_primary(mockup_id: int):
+    """Set a mockup as the primary (hero) image for DovShop."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT image_id FROM image_mockups WHERE id = $1", mockup_id
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Mockup not found")
+    await db.set_image_mockup_dovshop_primary(mockup_id, row["image_id"])
+    return {"mockup_id": mockup_id, "dovshop_primary": True}
+
+
 @router.post("/mockups/workflow/decline/{image_id}")
 async def decline_poster(image_id: int):
     """
