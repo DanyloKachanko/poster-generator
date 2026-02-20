@@ -582,6 +582,99 @@ class PublishScheduler:
         else:
             logger.info("No poster URL found for %s, skipping mockup upload", printify_product_id)
 
+        # --- Step 4: Auto-publish to DovShop ---
+        try:
+            from deps import dovshop_client
+            if dovshop_client.is_configured:
+                from dovshop_ai import enrich_product
+
+                # Gather product info
+                tags = []
+                raw_tags = (local_product or {}).get("tags") or []
+                if isinstance(raw_tags, str):
+                    import json as json_mod2
+                    try:
+                        tags = json_mod2.loads(raw_tags)
+                    except Exception:
+                        tags = []
+                else:
+                    tags = list(raw_tags)
+
+                # Get style from generations
+                gen_style = None
+                sid = (local_product or {}).get("source_image_id")
+                if sid:
+                    pool = await db.get_pool()
+                    async with pool.acquire() as conn:
+                        style_row = await conn.fetchrow(
+                            """SELECT g.style FROM generated_images gi
+                               JOIN generations g ON g.generation_id = gi.generation_id
+                               WHERE gi.id = $1""", sid
+                        )
+                    if style_row:
+                        gen_style = style_row["style"]
+
+                # Get existing DovShop context
+                collections = await dovshop_client.get_collections()
+                try:
+                    categories = await dovshop_client.get_categories()
+                except Exception:
+                    categories = []
+
+                title = (local_product or {}).get("title", "")
+                desc = (local_product or {}).get("description", "")
+                img_url = (local_product or {}).get("image_url", "")
+
+                # AI enrichment
+                enrichment = await enrich_product(
+                    title=title, tags=tags, style=gen_style,
+                    description=desc, image_url=img_url,
+                    existing_collections=collections,
+                    existing_categories=categories,
+                )
+
+                coll_name = enrichment.get("collection_name")
+
+                # Build images list
+                push_images = []
+                preferred = (local_product or {}).get("preferred_mockup_url")
+                if preferred:
+                    push_images.append(preferred)
+                if img_url and img_url not in push_images:
+                    push_images.append(img_url)
+
+                etsy_url_ds = f"https://www.etsy.com/listing/{etsy_listing_id}" if etsy_listing_id else ""
+
+                # Push to DovShop
+                dovshop_result = await dovshop_client.push_product(
+                    name=title,
+                    images=push_images,
+                    etsy_url=etsy_url_ds,
+                    featured=enrichment.get("featured", False),
+                    description=enrichment.get("seo_description", desc),
+                    tags=tags,
+                    external_id=printify_product_id,
+                    preferred_mockup_url=preferred or "",
+                )
+
+                dovshop_id = dovshop_result.get("id") or dovshop_result.get("_id", "")
+                if dovshop_id:
+                    await db.set_product_dovshop_id(printify_product_id, str(dovshop_id))
+
+                # Telegram notification
+                await self.notifier.notify_dovshop_published(
+                    title=title,
+                    collection=coll_name,
+                    categories=enrichment.get("categories"),
+                    image_url=img_url,
+                )
+
+                logger.info("Auto-published %s to DovShop (id=%s, categories=%s)",
+                            printify_product_id, dovshop_id,
+                            enrichment.get("categories"))
+        except Exception as e:
+            logger.error("Failed to auto-publish %s to DovShop: %s", printify_product_id, e)
+
     # ------------------------------------------------------------------
     # Mockup catch-up — fill missing etsy_listing_ids + apply mockups
     # ------------------------------------------------------------------

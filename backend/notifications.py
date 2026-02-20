@@ -109,6 +109,22 @@ class NotificationService:
         await self._send(msg)
 
     # ------------------------------------------------------------------
+    # DovShop
+    # ------------------------------------------------------------------
+
+    async def notify_dovshop_published(
+        self, title: str, collection: str | None = None,
+        categories: list[str] | None = None, image_url: str | None = None,
+    ):
+        """Product auto-published to DovShop."""
+        lines = [f"\U0001f310 <b>DovShop:</b> {title}"]
+        if collection:
+            lines.append(f"\U0001f4c1 Collection: {collection}")
+        if categories:
+            lines.append(f"\U0001f3f7 Categories: {', '.join(categories)}")
+        await self._send("\n".join(lines), image_url=image_url)
+
+    # ------------------------------------------------------------------
     # Batch
     # ------------------------------------------------------------------
 
