@@ -3,9 +3,20 @@
 import json
 import logging
 import os
+import re
 import httpx
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from Claude response, stripping markdown fences if present."""
+    text = text.strip()
+    # Strip ```json ... ``` or ``` ... ```
+    m = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+    if m:
+        text = m.group(1).strip()
+    return json.loads(text, strict=False)
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 MODEL = "claude-haiku-4-5-20251001"
@@ -89,7 +100,7 @@ Featured: true only for exceptional/unique pieces."""
             resp.raise_for_status()
             data = resp.json()
             text = data["content"][0]["text"]
-            result = json.loads(text, strict=False)
+            result = _extract_json(text)
             result.setdefault("categories", [])
             result.setdefault("collection_name", None)
             result.setdefault("seo_description", description)
@@ -190,7 +201,8 @@ Be specific. Reference actual poster IDs and names. Limit to top 5 recommendatio
             resp.raise_for_status()
             data = resp.json()
             text = data["content"][0]["text"]
-            return json.loads(text, strict=False)
+            logger.info("AI strategy raw response length: %d", len(text))
+            return _extract_json(text)
     except Exception as e:
-        logger.error("AI strategy analysis failed: %s", e)
+        logger.error("AI strategy analysis failed: %s", e, exc_info=True)
         return {"error": str(e)}
