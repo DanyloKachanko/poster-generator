@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from deps import dovshop_client
 from categorizer import categorize_product
+from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
 import re as _re
 
@@ -350,3 +351,124 @@ async def sync_all_to_dovshop():
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+# === AI Endpoints ===
+
+
+class EnrichRequest(BaseModel):
+    printify_product_id: str
+
+
+@router.post("/dovshop/ai-enrich")
+async def ai_enrich_product(request: EnrichRequest):
+    """Use AI to determine categories, collection, and SEO description for a product."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    product = await db.get_product_by_printify_id(request.printify_product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    tags = product.get("tags") or []
+    if isinstance(tags, str):
+        try:
+            tags = json.loads(tags)
+        except Exception:
+            tags = []
+
+    collections = await dovshop_client.get_collections()
+    try:
+        categories = await dovshop_client.get_categories()
+    except Exception:
+        categories = []
+
+    result = await enrich_product(
+        title=product.get("title", ""),
+        tags=tags,
+        style=None,
+        description=product.get("description", ""),
+        image_url=product.get("image_url", ""),
+        existing_collections=collections,
+        existing_categories=categories,
+    )
+    return result
+
+
+@router.post("/dovshop/ai-strategy")
+async def ai_strategy():
+    """Analyze full DovShop catalog and return AI recommendations."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    products = await dovshop_client.get_products()
+    collections = await dovshop_client.get_collections()
+    try:
+        categories = await dovshop_client.get_categories()
+    except Exception:
+        categories = []
+
+    result = await analyze_catalog_strategy(products, collections, categories)
+    if "error" in result and len(result) == 1:
+        raise HTTPException(status_code=500, detail=result["error"])
+    return result
+
+
+class ApplyCollectionRequest(BaseModel):
+    name: str
+    description: str = ""
+    poster_ids: List[int] = []
+
+
+@router.post("/dovshop/apply-collection")
+async def apply_collection(request: ApplyCollectionRequest):
+    """Create a collection and optionally assign posters to it."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    collection = await dovshop_client.create_collection(
+        name=request.name,
+        description=request.description,
+    )
+    coll_id = collection.get("id")
+
+    assigned = 0
+    if coll_id and request.poster_ids:
+        for pid in request.poster_ids:
+            try:
+                await dovshop_client.update_product(str(pid), {"collectionId": coll_id})
+                assigned += 1
+            except Exception:
+                pass
+
+    return {"success": True, "collection_id": coll_id, "assigned": assigned}
+
+
+class ApplyFeatureRequest(BaseModel):
+    poster_id: int
+    featured: bool = True
+
+
+@router.post("/dovshop/apply-feature")
+async def apply_feature(request: ApplyFeatureRequest):
+    """Set or unset featured status for a poster on DovShop."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    await dovshop_client.update_product(str(request.poster_id), {"featured": request.featured})
+    return {"success": True}
+
+
+class ApplySeoRequest(BaseModel):
+    poster_id: int
+    description: str
+
+
+@router.post("/dovshop/apply-seo")
+async def apply_seo(request: ApplySeoRequest):
+    """Update a poster's description on DovShop."""
+    if not dovshop_client.is_configured:
+        raise HTTPException(status_code=400, detail="DovShop not configured")
+
+    await dovshop_client.update_product(str(request.poster_id), {"description": request.description})
+    return {"success": True}
