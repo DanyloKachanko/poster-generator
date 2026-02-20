@@ -7,6 +7,15 @@ const nextConfig = {
         protocol: 'https',
         hostname: 'cdn.leonardo.ai',
       },
+      {
+        protocol: 'https',
+        hostname: 'designapi.dovshop.org',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '8001',
+      },
     ],
   },
 }

@@ -1,6 +1,7 @@
 """DovShop API routes for product publishing and management"""
 
 import json
+import os
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -10,9 +11,14 @@ from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
 import re as _re
 
+# Public backend URL for DovShop image URLs (so dovshop.org can reach them)
+_PUBLIC_BACKEND_URL = os.environ.get("PUBLIC_BACKEND_URL", "").rstrip("/")
+
 
 def _get_base_url(request: Request) -> str:
-    """Build public base URL from proxy headers."""
+    """Build public base URL. Uses PUBLIC_BACKEND_URL env if set, else proxy headers."""
+    if _PUBLIC_BACKEND_URL:
+        return _PUBLIC_BACKEND_URL
     scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
     host = request.headers.get("x-forwarded-host", request.headers.get("host", request.url.netloc))
     return f"{scheme}://{host}"
