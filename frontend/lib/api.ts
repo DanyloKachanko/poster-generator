@@ -2500,9 +2500,16 @@ export interface DovShopProduct {
   description?: string;
   price: number;
   image_url: string;
+  images?: string[];
   tags?: string[];
   created_at: string;
-  external_id?: string;
+  slug?: string;
+  etsy_url?: string;
+  printify_id?: string;
+  style?: string;
+  featured?: boolean;
+  collection?: { id: number; name: string; slug: string } | null;
+  categories?: string[];
 }
 
 export interface DovShopCollection {

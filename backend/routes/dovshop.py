@@ -7,6 +7,57 @@ from pydantic import BaseModel
 from deps import dovshop_client
 from categorizer import categorize_product
 import database as db
+import re as _re
+
+
+def _transform_product(p: dict) -> dict:
+    """Map DovShop camelCase poster fields to frontend snake_case."""
+    images = p.get("images") or []
+    if isinstance(images, str):
+        try:
+            images = json.loads(images)
+        except Exception:
+            images = [images] if images else []
+    return {
+        "id": str(p.get("id", "")),
+        "title": p.get("name", ""),
+        "description": p.get("description") or "",
+        "price": _parse_price(p.get("priceRange") or ""),
+        "image_url": p.get("mockupUrl") or (images[0] if images else ""),
+        "images": images,
+        "tags": p.get("tags") or [],
+        "created_at": p.get("createdAt") or "",
+        "slug": p.get("slug") or "",
+        "etsy_url": p.get("etsyUrl") or "",
+        "printify_id": p.get("printifyId") or "",
+        "style": p.get("style") or "",
+        "featured": p.get("featured", False),
+        "collection": p.get("collection"),
+        "categories": [c.get("slug") or c.get("name", "") for c in (p.get("categories") or [])],
+    }
+
+
+def _parse_price(price_range: str) -> float:
+    """Extract first number from price range string like '$15 - $45'."""
+    if not price_range:
+        return 0.0
+    match = _re.search(r"[\d.]+", price_range)
+    return float(match.group()) if match else 0.0
+
+
+def _transform_collection(c: dict) -> dict:
+    """Map DovShop camelCase collection fields to frontend snake_case."""
+    count = c.get("_count") or {}
+    return {
+        "id": str(c.get("id", "")),
+        "name": c.get("name", ""),
+        "description": c.get("description") or "",
+        "cover_url": c.get("coverImage") or "",
+        "product_count": count.get("posters") or 0,
+        "created_at": c.get("createdAt") or "",
+        "slug": c.get("slug") or "",
+    }
+
 
 router = APIRouter(tags=["dovshop"])
 
@@ -61,7 +112,7 @@ async def list_dovshop_products():
 
     try:
         products = await dovshop_client.get_products()
-        return {"products": products}
+        return {"products": [_transform_product(p) for p in products]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch DovShop products: {str(e)}")
 
@@ -149,7 +200,7 @@ async def list_dovshop_collections():
 
     try:
         collections = await dovshop_client.get_collections()
-        return {"collections": collections}
+        return {"collections": [_transform_collection(c) for c in collections]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch collections: {str(e)}")
 
