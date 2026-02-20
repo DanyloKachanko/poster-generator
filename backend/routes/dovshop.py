@@ -411,7 +411,26 @@ async def ai_strategy():
     result = await analyze_catalog_strategy(products, collections, categories)
     if "error" in result and len(result) == 1:
         raise HTTPException(status_code=500, detail=result["error"])
+
+    # Save to history
+    await db.save_ai_strategy(result, product_count=len(products))
     return result
+
+
+@router.get("/dovshop/ai-strategy/history")
+async def ai_strategy_history(limit: int = 20):
+    """Get history of AI strategy analyses."""
+    items = await db.get_ai_strategy_history(limit=limit)
+    return {"items": items}
+
+
+@router.get("/dovshop/ai-strategy/latest")
+async def ai_strategy_latest():
+    """Get the most recent AI strategy analysis."""
+    item = await db.get_ai_strategy_latest()
+    if not item:
+        return {"item": None}
+    return {"item": item}
 
 
 class ApplyCollectionRequest(BaseModel):

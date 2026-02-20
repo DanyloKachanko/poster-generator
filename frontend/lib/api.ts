@@ -2652,6 +2652,13 @@ export interface DovShopStrategyResult {
   summary: string;
 }
 
+export interface DovShopStrategyHistoryItem {
+  id: number;
+  result: DovShopStrategyResult;
+  product_count: number;
+  created_at: string;
+}
+
 export async function getDovShopAIEnrich(printifyProductId: string): Promise<DovShopEnrichResult> {
   const response = await apiFetch(`${getApiUrl()}/dovshop/ai-enrich`, {
     method: 'POST',
@@ -2672,6 +2679,20 @@ export async function getDovShopAIStrategy(): Promise<DovShopStrategyResult> {
     throw new Error(error.detail || 'Strategy analysis failed');
   }
   return response.json();
+}
+
+export async function getDovShopStrategyLatest(): Promise<DovShopStrategyHistoryItem | null> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/ai-strategy/latest`);
+  if (!response.ok) return null;
+  const data = await response.json();
+  return data.item || null;
+}
+
+export async function getDovShopStrategyHistory(limit: number = 20): Promise<DovShopStrategyHistoryItem[]> {
+  const response = await apiFetch(`${getApiUrl()}/dovshop/ai-strategy/history?limit=${limit}`);
+  if (!response.ok) return [];
+  const data = await response.json();
+  return data.items || [];
 }
 
 export async function applyDovShopCollection(data: { name: string; description?: string; poster_ids?: number[] }): Promise<{ success: boolean; collection_id: number; assigned: number }> {

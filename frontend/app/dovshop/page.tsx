@@ -12,6 +12,8 @@ import {
   getTrackedProducts,
   syncAllToDovShop,
   getDovShopAIStrategy,
+  getDovShopStrategyLatest,
+  getDovShopStrategyHistory,
   applyDovShopCollection,
   applyDovShopFeature,
   applyDovShopSeo,
@@ -21,6 +23,7 @@ import {
   type TrackedProduct,
   type DovShopSyncResponse,
   type DovShopStrategyResult,
+  type DovShopStrategyHistoryItem,
 } from '@/lib/api';
 
 type Tab = 'sync' | 'products' | 'collections' | 'push' | 'strategy';
@@ -59,6 +62,9 @@ export default function DovShopPage() {
   const [strategy, setStrategy] = useState<DovShopStrategyResult | null>(null);
   const [strategyLoading, setStrategyLoading] = useState(false);
   const [applyingAction, setApplyingAction] = useState<string | null>(null);
+  const [appliedActions, setAppliedActions] = useState<Set<string>>(new Set());
+  const [strategyHistory, setStrategyHistory] = useState<DovShopStrategyHistoryItem[]>([]);
+  const [strategyDate, setStrategyDate] = useState<string | null>(null);
 
   useEffect(() => { loadStatus(); }, []);
 
@@ -66,7 +72,19 @@ export default function DovShopPage() {
     if (tab === 'products') loadProducts();
     else if (tab === 'collections') loadCollections();
     else if (tab === 'push') loadPanelProducts();
+    else if (tab === 'strategy') loadStrategyHistory();
   }, [tab]);
+
+  const loadStrategyHistory = async () => {
+    try {
+      const items = await getDovShopStrategyHistory(20);
+      setStrategyHistory(items);
+      if (!strategy && items.length > 0) {
+        setStrategy(items[0].result);
+        setStrategyDate(items[0].created_at);
+      }
+    } catch {}
+  };
 
   const loadStatus = async () => {
     try {
@@ -178,33 +196,51 @@ export default function DovShopPage() {
     setStrategyLoading(true);
     setStrategy(null);
     setError(null);
+    setAppliedActions(new Set());
+    setStrategyDate(null);
     try {
       const result = await getDovShopAIStrategy();
       setStrategy(result);
+      setStrategyDate(new Date().toISOString());
+      await loadStrategyHistory();
     } catch (err) { setError((err as Error).message); }
     finally { setStrategyLoading(false); }
   };
 
+  const handleSelectHistoryItem = (item: DovShopStrategyHistoryItem) => {
+    setStrategy(item.result);
+    setStrategyDate(item.created_at);
+    setAppliedActions(new Set());
+  };
+
   const handleApplyCollection = async (name: string, description: string, posterIds: number[]) => {
-    setApplyingAction(`coll-${name}`);
+    const key = `coll-${name}`;
+    setApplyingAction(key);
     try {
       await applyDovShopCollection({ name, description, poster_ids: posterIds });
+      setAppliedActions(prev => new Set(prev).add(key));
       await loadCollections();
     } catch (err) { setError((err as Error).message); }
     finally { setApplyingAction(null); }
   };
 
   const handleApplyFeature = async (posterId: number) => {
-    setApplyingAction(`feat-${posterId}`);
-    try { await applyDovShopFeature(posterId, true); }
-    catch (err) { setError((err as Error).message); }
+    const key = `feat-${posterId}`;
+    setApplyingAction(key);
+    try {
+      await applyDovShopFeature(posterId, true);
+      setAppliedActions(prev => new Set(prev).add(key));
+    } catch (err) { setError((err as Error).message); }
     finally { setApplyingAction(null); }
   };
 
   const handleApplySeo = async (posterId: number, desc: string) => {
-    setApplyingAction(`seo-${posterId}`);
-    try { await applyDovShopSeo(posterId, desc); }
-    catch (err) { setError((err as Error).message); }
+    const key = `seo-${posterId}`;
+    setApplyingAction(key);
+    try {
+      await applyDovShopSeo(posterId, desc);
+      setAppliedActions(prev => new Set(prev).add(key));
+    } catch (err) { setError((err as Error).message); }
     finally { setApplyingAction(null); }
   };
 
@@ -511,7 +547,14 @@ export default function DovShopPage() {
             <div className="space-y-6">
               {/* Summary */}
               <div className="bg-accent/5 border border-accent/20 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-accent mb-2">Summary</h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-medium text-accent">Summary</h3>
+                  {strategyDate && (
+                    <span className="text-xs text-gray-500">
+                      {new Date(strategyDate).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-gray-300">{strategy.summary}</p>
               </div>
 
@@ -526,11 +569,15 @@ export default function DovShopPage() {
                         <p className="text-xs text-gray-400 mt-1">{c.description}</p>
                         <p className="text-xs text-gray-500 mt-1">{c.poster_ids?.length || 0} posters to assign</p>
                       </div>
-                      <button onClick={() => handleApplyCollection(c.name, c.description, c.poster_ids)}
-                        disabled={applyingAction === `coll-${c.name}`}
-                        className="px-3 py-1.5 bg-accent/15 hover:bg-accent/25 border border-accent/30 rounded text-accent text-xs font-medium disabled:opacity-50">
-                        {applyingAction === `coll-${c.name}` ? 'Creating...' : 'Create'}
-                      </button>
+                      {appliedActions.has(`coll-${c.name}`) ? (
+                        <span className="px-3 py-1.5 text-green-400 text-xs font-medium">Created</span>
+                      ) : (
+                        <button onClick={() => handleApplyCollection(c.name, c.description, c.poster_ids)}
+                          disabled={applyingAction === `coll-${c.name}`}
+                          className="px-3 py-1.5 bg-accent/15 hover:bg-accent/25 border border-accent/30 rounded text-accent text-xs font-medium disabled:opacity-50">
+                          {applyingAction === `coll-${c.name}` ? 'Creating...' : 'Create'}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -546,11 +593,15 @@ export default function DovShopPage() {
                         <p className="text-sm text-gray-200">{r.title}</p>
                         <p className="text-xs text-gray-400 mt-1">{r.reason}</p>
                       </div>
-                      <button onClick={() => handleApplyFeature(r.id)}
-                        disabled={applyingAction === `feat-${r.id}`}
-                        className="px-3 py-1.5 bg-yellow-500/15 hover:bg-yellow-500/25 border border-yellow-500/30 rounded text-yellow-400 text-xs font-medium disabled:opacity-50">
-                        {applyingAction === `feat-${r.id}` ? '...' : 'Feature'}
-                      </button>
+                      {appliedActions.has(`feat-${r.id}`) ? (
+                        <span className="px-3 py-1.5 text-green-400 text-xs font-medium">Featured</span>
+                      ) : (
+                        <button onClick={() => handleApplyFeature(r.id)}
+                          disabled={applyingAction === `feat-${r.id}`}
+                          className="px-3 py-1.5 bg-yellow-500/15 hover:bg-yellow-500/25 border border-yellow-500/30 rounded text-yellow-400 text-xs font-medium disabled:opacity-50">
+                          {applyingAction === `feat-${r.id}` ? '...' : 'Feature'}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -577,17 +628,39 @@ export default function DovShopPage() {
                     <div key={i} className="p-3 bg-dark-bg rounded-lg space-y-2">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-gray-200">{s.title}</p>
-                        <button onClick={() => handleApplySeo(s.id, s.suggested_desc)}
-                          disabled={applyingAction === `seo-${s.id}`}
-                          className="px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 border border-green-500/30 rounded text-green-400 text-xs font-medium disabled:opacity-50">
-                          {applyingAction === `seo-${s.id}` ? '...' : 'Apply'}
-                        </button>
+                        {appliedActions.has(`seo-${s.id}`) ? (
+                          <span className="px-3 py-1.5 text-green-400 text-xs font-medium">Applied</span>
+                        ) : (
+                          <button onClick={() => handleApplySeo(s.id, s.suggested_desc)}
+                            disabled={applyingAction === `seo-${s.id}`}
+                            className="px-3 py-1.5 bg-green-500/15 hover:bg-green-500/25 border border-green-500/30 rounded text-green-400 text-xs font-medium disabled:opacity-50">
+                            {applyingAction === `seo-${s.id}` ? '...' : 'Apply'}
+                          </button>
+                        )}
                       </div>
                       <p className="text-xs text-gray-400">{s.suggested_desc}</p>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* History selector */}
+          {strategyHistory.length > 1 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500">History:</span>
+              {strategyHistory.map(h => {
+                const d = new Date(h.created_at);
+                const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const isActive = strategyDate === h.created_at;
+                return (
+                  <button key={h.id} onClick={() => handleSelectHistoryItem(h)}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${isActive ? 'bg-accent/20 text-accent border border-accent/30' : 'bg-dark-card text-gray-400 border border-dark-border hover:text-gray-200'}`}>
+                    {label} ({h.product_count}p)
+                  </button>
+                );
+              })}
             </div>
           )}
 
