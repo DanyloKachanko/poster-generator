@@ -44,6 +44,7 @@ export default function CreateProductModal({
   const [upscaleBackend, setUpscaleBackend] = useState<string>('');
   const [schedulingProduct, setSchedulingProduct] = useState(false);
   const [scheduledAt, setScheduledAt] = useState<string | null>(null);
+  const [creationStep, setCreationStep] = useState<string>('Starting...');
 
   // Load pricing, DPI analysis, and pre-fill from preset
   useEffect(() => {
@@ -145,17 +146,21 @@ export default function CreateProductModal({
     setError(null);
 
     try {
-      const response = await createFullProduct({
-        style: preset?.category || 'custom',
-        preset: preset?.id || 'custom',
-        description: description,
-        image_url: image.url,
-        pricing_strategy: pricingStrategy,
-        publish_to_etsy: publishToEtsy,
-        listing_title: title || undefined,
-        listing_tags: tags.length > 0 ? tags : undefined,
-        listing_description: description || undefined,
-      });
+      setCreationStep('Starting...');
+      const response = await createFullProduct(
+        {
+          style: preset?.category || 'custom',
+          preset: preset?.id || 'custom',
+          description: description,
+          image_url: image.url,
+          pricing_strategy: pricingStrategy,
+          publish_to_etsy: publishToEtsy,
+          listing_title: title || undefined,
+          listing_tags: tags.length > 0 ? tags : undefined,
+          listing_description: description || undefined,
+        },
+        (step) => setCreationStep(step),
+      );
       setResult(response);
       setStep('success');
     } catch (err) {
@@ -470,8 +475,7 @@ export default function CreateProductModal({
             <div className="animate-spin w-10 h-10 border-3 border-accent border-t-transparent rounded-full mb-4" />
             <p className="text-gray-300 font-medium">Creating product...</p>
             <p className="text-xs text-gray-500 mt-1">
-              Uploading image, creating listing on Printify
-              {publishToEtsy && ', publishing to Etsy'}
+              {creationStep}
             </p>
           </div>
         )}

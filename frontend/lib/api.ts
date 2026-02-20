@@ -620,18 +620,43 @@ export interface CreateFullProductResponse {
 }
 
 export async function createFullProduct(
-  request: CreateFullProductRequest
+  request: CreateFullProductRequest,
+  onStep?: (step: string) => void,
 ): Promise<CreateFullProductResponse> {
-  const response = await apiFetch(`${getApiUrl()}/create-full-product`, {
+  // Start background task
+  const startResp = await apiFetch(`${getApiUrl()}/create-full-product`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Failed to create product' }));
+  if (!startResp.ok) {
+    const error = await startResp.json().catch(() => ({ detail: 'Failed to create product' }));
     throw new Error(error.detail || 'Failed to create product');
   }
-  return response.json();
+  const { task_id } = await startResp.json();
+
+  // Poll for completion
+  while (true) {
+    await new Promise((r) => setTimeout(r, 1500));
+    const statusResp = await apiFetch(
+      `${getApiUrl()}/create-full-product/status/${task_id}`
+    );
+    if (!statusResp.ok) {
+      throw new Error('Failed to check product creation status');
+    }
+    const status = await statusResp.json();
+
+    if (onStep && status.step) {
+      onStep(status.step);
+    }
+
+    if (status.status === 'completed') {
+      return status.result as CreateFullProductResponse;
+    }
+    if (status.status === 'failed') {
+      throw new Error(status.error || 'Product creation failed');
+    }
+  }
 }
 
 // Analytics types and functions
@@ -2601,6 +2626,135 @@ export async function syncAllToDovShop(): Promise<DovShopSyncResponse> {
     throw new Error(error.detail || 'Sync failed');
   }
   return response.json();
+}
+
+// === Strategy ===
+
+export interface StrategyPlan {
+  id: number;
+  name: string;
+  status: 'draft' | 'executing' | 'completed';
+  total_items: number;
+  done_items: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StrategyItem {
+  id: number;
+  plan_id: number;
+  prompt: string;
+  description: string;
+  style: string;
+  preset: string;
+  model_id: string;
+  size_id: string;
+  title_hint: string;
+  status: 'planned' | 'generating' | 'generated' | 'product_created' | 'skipped';
+  generation_id: string | null;
+  printify_product_id: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface StrategyPlanDetail extends StrategyPlan {
+  items: StrategyItem[];
+}
+
+export interface StrategyCoverage {
+  total_combinations: number;
+  covered: number;
+  products: number;
+  coverage_percent: number;
+}
+
+export interface ExecutionStatus {
+  status: string;
+  step: number;
+  total: number;
+  completed: number;
+  current_item: number | null;
+  current_title: string | null;
+  errors: Array<{ item_id: number; error: string }>;
+}
+
+export async function getStrategyPlans(): Promise<StrategyPlan[]> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/plans`);
+  if (!resp.ok) throw new Error('Failed to fetch plans');
+  return resp.json();
+}
+
+export async function getStrategyPlan(planId: number): Promise<StrategyPlanDetail> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/plans/${planId}`);
+  if (!resp.ok) throw new Error('Failed to fetch plan');
+  return resp.json();
+}
+
+export async function createStrategyPlan(name: string): Promise<StrategyPlan> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/plans`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!resp.ok) throw new Error('Failed to create plan');
+  return resp.json();
+}
+
+export async function deleteStrategyPlan(planId: number): Promise<void> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/plans/${planId}`, { method: 'DELETE' });
+  if (!resp.ok) throw new Error('Failed to delete plan');
+}
+
+export async function generateStrategyPlan(name: string, count: number = 15): Promise<StrategyPlanDetail> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/generate-plan`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, count }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: 'AI generation failed' }));
+    throw new Error(err.detail || 'AI generation failed');
+  }
+  return resp.json();
+}
+
+export async function updateStrategyItem(
+  itemId: number,
+  data: Partial<Pick<StrategyItem, 'prompt' | 'description' | 'style' | 'preset' | 'model_id' | 'size_id' | 'title_hint' | 'sort_order' | 'status'>>,
+): Promise<StrategyItem> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/items/${itemId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!resp.ok) throw new Error('Failed to update item');
+  return resp.json();
+}
+
+export async function deleteStrategyItem(itemId: number): Promise<void> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/items/${itemId}`, { method: 'DELETE' });
+  if (!resp.ok) throw new Error('Failed to delete item');
+}
+
+export async function executeStrategyPlan(planId: number): Promise<{ task_id: string; total_items: number }> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/plans/${planId}/execute`, { method: 'POST' });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: 'Execution failed' }));
+    throw new Error(err.detail || 'Execution failed');
+  }
+  return resp.json();
+}
+
+export async function getExecutionStatus(taskId: string): Promise<ExecutionStatus> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/execute/status/${taskId}`);
+  if (!resp.ok) throw new Error('Failed to check status');
+  return resp.json();
+}
+
+export async function getStrategyCoverage(): Promise<StrategyCoverage> {
+  const resp = await apiFetch(`${getApiUrl()}/strategy/coverage`);
+  if (!resp.ok) throw new Error('Failed to fetch coverage');
+  return resp.json();
 }
 
 // --- Source image linking ---

@@ -1,4 +1,6 @@
+import asyncio
 import time
+import uuid
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -152,31 +154,16 @@ class FullCreateRequest(BaseModel):
     listing_description: Optional[str] = None
 
 
-@router.post("/create-full-product")
-async def create_full_product(request: FullCreateRequest):
-    """
-    Full automation: Generate listing text + Create Printify product.
+# In-memory task store for background product creation
+_product_tasks: dict[str, dict] = {}
 
-    1. Generate title, tags, description via Claude
-    2. Calculate pricing
-    3. Upload image to Printify
-    4. Create product with all sizes and prices
-    5. Optionally publish to Etsy
-    """
-    if not listing_gen.api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="Anthropic API key not configured"
-        )
 
-    if not printify.is_configured:
-        raise HTTPException(
-            status_code=500,
-            detail="Printify not configured. Add PRINTIFY_API_TOKEN and PRINTIFY_SHOP_ID to .env"
-        )
-
+async def _run_create_product(task_id: str, request: FullCreateRequest):
+    """Background worker for product creation."""
+    task = _product_tasks[task_id]
     try:
         # Step 1: Use pre-generated listing data or generate via AI
+        task["step"] = "Generating listing..."
         if request.listing_title and request.listing_tags and request.listing_description:
             listing = EtsyListing(
                 title=request.listing_title[:140],
@@ -194,6 +181,7 @@ async def create_full_product(request: FullCreateRequest):
         prices = get_all_prices(request.pricing_strategy)
 
         # Step 3: DPI-aware multi-design upload
+        task["step"] = "Uploading images..."
         filename_prefix = f"{request.style}_{request.preset}_{int(time.time())}"
         design_groups, enabled_sizes, dpi_analysis = await prepare_multidesign_images(
             image_url=request.image_url,
@@ -207,6 +195,7 @@ async def create_full_product(request: FullCreateRequest):
         clean_desc = clean_description(listing.description, list(enabled_sizes))
 
         # Step 6: Create product with per-variant designs
+        task["step"] = "Creating Printify product..."
         product = await printify.create_product_multidesign(
             title=listing.title,
             description=clean_desc,
@@ -228,6 +217,7 @@ async def create_full_product(request: FullCreateRequest):
         }
         product_status = "draft"
         if request.publish_to_etsy:
+            task["step"] = "Scheduling Etsy publish..."
             schedule_result = await publish_scheduler.add_to_queue(
                 printify_product_id=product.id,
                 title=listing.title,
@@ -237,6 +227,7 @@ async def create_full_product(request: FullCreateRequest):
             product_status = "scheduled"
 
         # Resolve source image for linking
+        task["step"] = "Saving to database..."
         source_image = await db.get_image_by_url(request.image_url)
         source_image_id = source_image["id"] if source_image else None
 
@@ -265,7 +256,9 @@ async def create_full_product(request: FullCreateRequest):
         # Filter prices to only enabled sizes
         prices = {k: v for k, v in prices.items() if k in enabled_sizes}
 
-        return {
+        task["status"] = "completed"
+        task["step"] = "Done"
+        task["result"] = {
             "printify_product_id": product.id,
             "title": listing.title,
             "tags": listing.tags,
@@ -278,4 +271,56 @@ async def create_full_product(request: FullCreateRequest):
             "upscale_backend": upscale_service.backend_name,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        task["status"] = "failed"
+        task["step"] = "Failed"
+        task["error"] = str(e)
+
+
+@router.post("/create-full-product")
+async def create_full_product(request: FullCreateRequest):
+    """Start product creation in background. Returns task_id for polling."""
+    if not listing_gen.api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="Anthropic API key not configured"
+        )
+
+    if not printify.is_configured:
+        raise HTTPException(
+            status_code=500,
+            detail="Printify not configured. Add PRINTIFY_API_TOKEN and PRINTIFY_SHOP_ID to .env"
+        )
+
+    task_id = str(uuid.uuid4())[:8]
+    _product_tasks[task_id] = {
+        "status": "running",
+        "step": "Starting...",
+        "result": None,
+        "error": None,
+    }
+    asyncio.create_task(_run_create_product(task_id, request))
+    return {"task_id": task_id}
+
+
+@router.get("/create-full-product/status/{task_id}")
+async def get_create_product_status(task_id: str):
+    """Poll for product creation status."""
+    task = _product_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    response = {
+        "task_id": task_id,
+        "status": task["status"],
+        "step": task["step"],
+    }
+
+    if task["status"] == "completed":
+        response["result"] = task["result"]
+        # Clean up after successful retrieval
+        _product_tasks.pop(task_id, None)
+    elif task["status"] == "failed":
+        response["error"] = task["error"]
+        _product_tasks.pop(task_id, None)
+
+    return response
