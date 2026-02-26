@@ -1747,3 +1747,32 @@ async def _background_apply_missing(pack_id: int, rows: list):
         _apply_missing_status["errors"].append(f"Fatal: {e}")
     finally:
         _apply_missing_status["running"] = False
+
+
+class ReapplySingleRequest(BaseModel):
+    pack_id: Optional[int] = None
+
+
+@router.post("/mockups/workflow/reapply-product/{printify_product_id}")
+async def reapply_product_mockups(printify_product_id: str, request: Optional[ReapplySingleRequest] = None):
+    """Reapply mockups for a single product by its Printify ID.
+
+    Finds the source image for the product and runs the full approve flow
+    (compose + save to DB + upload to Etsy) with the specified pack.
+    """
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        product = await conn.fetchrow(
+            "SELECT * FROM products WHERE printify_product_id = $1", printify_product_id
+        )
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found in DB")
+
+    image_id = product.get("source_image_id")
+    if not image_id:
+        raise HTTPException(status_code=400, detail="Product has no linked source image")
+
+    pack_id = request.pack_id if request else None
+    approve_req = ApproveRequest(pack_id=pack_id) if pack_id else None
+    result = await approve_poster(image_id, approve_req)
+    return result

@@ -48,6 +48,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/etsy/callback"):
             return await call_next(request)
 
+        # Allow public access to mockup images (used in <img> tags)
+        if path.startswith("/mockups/serve/"):
+            return await call_next(request)
+
         auth_header = request.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
             return JSONResponse({"detail": "Not authenticated"}, status_code=401)

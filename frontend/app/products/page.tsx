@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
-import { getProductManagerData, ProductManagerItem, getTrackedProducts, TrackedProduct, syncProductsFromPrintify } from '@/lib/api';
+import { getProductManagerData, ProductManagerItem, getTrackedProducts, TrackedProduct, syncProductsFromPrintify, getMockupPacks, MockupPack, reapplyProductMockups } from '@/lib/api';
 import { analyzeSeo, scoreColor, scoreGrade } from '@/lib/seo-score';
 
-type SortKey = 'title' | 'seo' | 'views' | 'favorites' | 'orders' | 'revenue' | 'price';
+type SortKey = 'title' | 'seo' | 'views' | 'favorites' | 'orders' | 'revenue' | 'price' | 'created_at';
 type SortDir = 'asc' | 'desc';
 type Filter = 'all' | 'live' | 'draft' | 'scheduled' | 'failed' | 'low_seo' | 'no_views';
 
@@ -20,11 +20,18 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<ProductWithScore[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>('views');
+  const [sortKey, setSortKey] = useState<SortKey>('created_at');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [filter, setFilter] = useState<Filter>('all');
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  // Mockup refresh state
+  const [packs, setPacks] = useState<MockupPack[]>([]);
+  const [openPackMenu, setOpenPackMenu] = useState<string | null>(null); // printify_product_id
+  const [reapplying, setReapplying] = useState<Record<string, boolean>>({});
+  const [reapplyMsg, setReapplyMsg] = useState<Record<string, string>>({});
+  const menuRef = useRef<HTMLDivElement>(null);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -75,7 +82,21 @@ export default function ProductsPage() {
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+    getMockupPacks().then((r) => setPacks(r.packs)).catch(() => {});
+  }, []);
+
+  // Close pack menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpenPackMenu(null);
+      }
+    };
+    if (openPackMenu) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [openPackMenu]);
 
   const filtered = useMemo(() => {
     switch (filter) {
@@ -101,6 +122,7 @@ export default function ProductsPage() {
         case 'orders': va = a.total_orders; vb = b.total_orders; break;
         case 'revenue': va = a.total_revenue_cents; vb = b.total_revenue_cents; break;
         case 'price': va = a.min_price; vb = b.min_price; break;
+        case 'created_at': va = a.created_at || ''; vb = b.created_at || ''; break;
       }
       if (va < vb) return sortDir === 'asc' ? -1 : 1;
       if (va > vb) return sortDir === 'asc' ? 1 : -1;
@@ -120,7 +142,26 @@ export default function ProductsPage() {
 
   const sortIcon = (key: SortKey) => {
     if (sortKey !== key) return '';
-    return sortDir === 'asc' ? ' ↑' : ' ↓';
+    return sortDir === 'asc' ? ' \u2191' : ' \u2193';
+  };
+
+  const handleReapply = async (printifyProductId: string, packId?: number) => {
+    setOpenPackMenu(null);
+    setReapplying((prev) => ({ ...prev, [printifyProductId]: true }));
+    setReapplyMsg((prev) => ({ ...prev, [printifyProductId]: '' }));
+    try {
+      const result = await reapplyProductMockups(printifyProductId, packId);
+      const etsy = result.etsy_upload as Record<string, unknown>;
+      const msg = etsy?.success
+        ? `${result.mockups_composed} mockups + Etsy`
+        : `${result.mockups_composed} mockups (Etsy: ${etsy?.reason || 'skipped'})`;
+      setReapplyMsg((prev) => ({ ...prev, [printifyProductId]: msg }));
+    } catch (err) {
+      setReapplyMsg((prev) => ({ ...prev, [printifyProductId]: err instanceof Error ? err.message : 'Failed' }));
+    } finally {
+      setReapplying((prev) => ({ ...prev, [printifyProductId]: false }));
+      setTimeout(() => setReapplyMsg((prev) => ({ ...prev, [printifyProductId]: '' })), 5000);
+    }
   };
 
   // Totals
@@ -226,7 +267,9 @@ export default function ProductsPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-dark-border text-left text-xs text-gray-500 uppercase">
-                <th className="px-4 py-3 w-12">#</th>
+                <th className="px-4 py-3 w-12 cursor-pointer hover:text-gray-300" onClick={() => handleSort('created_at')}>
+                  #{sortIcon('created_at')}
+                </th>
                 <th className="px-4 py-3 w-16"></th>
                 <th className="px-4 py-3 cursor-pointer hover:text-gray-300" onClick={() => handleSort('title')}>
                   Title{sortIcon('title')}
@@ -306,28 +349,75 @@ export default function ProductsPage() {
                         {product.seo_grade} {product.seo_score}
                       </span>
                     ) : (
-                      <span className="text-xs text-gray-600">—</span>
+                      <span className="text-xs text-gray-600">&mdash;</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-gray-300">
-                    {product.total_views > 0 ? product.total_views.toLocaleString() : '—'}
+                    {product.total_views > 0 ? product.total_views.toLocaleString() : '\u2014'}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-gray-300">
-                    {product.total_favorites > 0 ? product.total_favorites.toLocaleString() : '—'}
+                    {product.total_favorites > 0 ? product.total_favorites.toLocaleString() : '\u2014'}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-gray-300">
-                    {product.total_orders > 0 ? product.total_orders : '—'}
+                    {product.total_orders > 0 ? product.total_orders : '\u2014'}
                   </td>
                   <td className="px-4 py-3 text-right text-sm text-gray-300">
                     {product.total_revenue_cents > 0
                       ? `$${(product.total_revenue_cents / 100).toFixed(2)}`
-                      : '—'}
+                      : '\u2014'}
                   </td>
-                  <td className="px-4 py-3 text-right text-sm text-gray-300">
-                    ${(product.min_price / 100).toFixed(2)}
-                    {product.max_price !== product.min_price && (
-                      <span className="text-gray-600"> - ${(product.max_price / 100).toFixed(2)}</span>
-                    )}
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <span className="text-sm text-gray-300">
+                        ${(product.min_price / 100).toFixed(2)}
+                        {product.max_price !== product.min_price && (
+                          <span className="text-gray-600"> - ${(product.max_price / 100).toFixed(2)}</span>
+                        )}
+                      </span>
+                      {/* Refresh mockups button */}
+                      {product.has_source_image && (
+                        <div className="relative">
+                          {reapplyMsg[product.printify_product_id] ? (
+                            <span className="text-xs text-accent whitespace-nowrap">{reapplyMsg[product.printify_product_id]}</span>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenPackMenu(openPackMenu === product.printify_product_id ? null : product.printify_product_id);
+                              }}
+                              disabled={reapplying[product.printify_product_id]}
+                              className="p-1 rounded hover:bg-dark-hover text-gray-500 hover:text-accent transition-colors disabled:opacity-50"
+                              title="Refresh mockups"
+                            >
+                              {reapplying[product.printify_product_id] ? (
+                                <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" strokeDasharray="31 31" /></svg>
+                              ) : (
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                              )}
+                            </button>
+                          )}
+                          {openPackMenu === product.printify_product_id && (
+                            <div ref={menuRef} className="absolute right-0 top-8 z-50 bg-dark-card border border-dark-border rounded-lg shadow-xl py-1 min-w-[180px]">
+                              <button
+                                onClick={() => handleReapply(product.printify_product_id)}
+                                className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-dark-hover hover:text-accent transition-colors"
+                              >
+                                Default pack
+                              </button>
+                              {packs.map((pack) => (
+                                <button
+                                  key={pack.id}
+                                  onClick={() => handleReapply(product.printify_product_id, pack.id)}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-dark-hover hover:text-accent transition-colors"
+                                >
+                                  {pack.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

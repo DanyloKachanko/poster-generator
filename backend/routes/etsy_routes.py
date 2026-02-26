@@ -555,6 +555,7 @@ async def get_product_manager_data():
                 "etsy_tags": etsy_data.get("tags", []),
                 "etsy_description": etsy_data.get("description", ""),
                 "etsy_materials": etsy_data.get("materials", []),
+                "created_at": product.get("created_at", ""),
             })
 
         return {"products": merged}

@@ -1288,6 +1288,7 @@ export interface ProductManagerItem {
   etsy_tags: string[];
   etsy_description: string;
   etsy_materials: string[];
+  created_at: string;
 }
 
 export interface ProductManagerResponse {
@@ -2235,6 +2236,19 @@ export async function reapplyApprovedMockups(packId?: number): Promise<{ started
 export async function getReapplyStatus(): Promise<{ running: boolean; total: number; done: number; ok: number; errors: string[] }> {
   const response = await apiFetch(`${getApiUrl()}/mockups/workflow/reapply-status`);
   if (!response.ok) throw new Error('Failed to get status');
+  return response.json();
+}
+
+export async function reapplyProductMockups(printifyProductId: string, packId?: number): Promise<{ success: boolean; mockups_composed: number; etsy_upload: Record<string, unknown> }> {
+  const response = await apiFetch(`${getApiUrl()}/mockups/workflow/reapply-product/${printifyProductId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(packId ? { pack_id: packId } : {}),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Reapply failed' }));
+    throw new Error(error.detail || 'Reapply failed');
+  }
   return response.json();
 }
 
