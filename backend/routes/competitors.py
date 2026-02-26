@@ -95,9 +95,9 @@ async def add_competitor(request: AddCompetitorRequest):
 
 
 @router.get("/competitors")
-async def list_competitors():
+async def list_competitors(limit: int = 100, offset: int = 0):
     """List all active competitors."""
-    competitors = await db.get_competitors(is_active=1)
+    competitors = await db.get_competitors(is_active=1, limit=limit, offset=offset)
     return {"competitors": competitors, "count": len(competitors)}
 
 

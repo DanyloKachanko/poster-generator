@@ -26,12 +26,12 @@ async def save_competitor(
         return dict(row)
 
 
-async def get_competitors(is_active: int = 1) -> List[Dict[str, Any]]:
+async def get_competitors(is_active: int = 1, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT * FROM competitors WHERE is_active = $1 ORDER BY created_at DESC",
-            is_active,
+            "SELECT * FROM competitors WHERE is_active = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            is_active, limit, offset,
         )
         return [dict(row) for row in rows]
 

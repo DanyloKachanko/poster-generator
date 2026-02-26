@@ -295,10 +295,10 @@ async def save_analytics_entry(request: AnalyticsEntryRequest):
 
 
 @router.get("/analytics/{product_id}/history")
-async def get_product_analytics(product_id: str):
+async def get_product_analytics(product_id: str, limit: int = 365, offset: int = 0):
     """Get historical analytics entries for a single product."""
     try:
-        entries = await db.get_product_analytics_history(product_id)
+        entries = await db.get_product_analytics_history(product_id, limit=limit, offset=offset)
         return {"entries": entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

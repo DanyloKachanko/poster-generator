@@ -32,8 +32,8 @@ async def save_analytics(
         )
 
 
-async def get_analytics_summary() -> List[Dict[str, Any]]:
-    """Get aggregated analytics per product."""
+async def get_analytics_summary(limit: int = 500, offset: int = 0) -> List[Dict[str, Any]]:
+    """Get aggregated analytics per product (paginated)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -47,15 +47,20 @@ async def get_analytics_summary() -> List[Dict[str, Any]]:
                 MAX(date) as latest_date
             FROM product_analytics
             GROUP BY printify_product_id
-            """
+            ORDER BY total_views DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit, offset,
         )
         return [dict(row) for row in rows]
 
 
 async def get_product_analytics_history(
     printify_product_id: str,
+    limit: int = 365,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
-    """Get all analytics entries for a product, ordered by date."""
+    """Get analytics entries for a product, ordered by date (paginated)."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -63,8 +68,9 @@ async def get_product_analytics_history(
             SELECT * FROM product_analytics
             WHERE printify_product_id = $1
             ORDER BY date DESC
+            LIMIT $2 OFFSET $3
             """,
-            printify_product_id,
+            printify_product_id, limit, offset,
         )
         return [dict(row) for row in rows]
 
