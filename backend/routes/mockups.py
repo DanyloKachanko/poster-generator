@@ -2,6 +2,7 @@ import asyncio
 import base64
 import io
 import json
+import random
 import time
 from typing import Optional, List, Tuple
 
@@ -1202,13 +1203,17 @@ async def approve_poster(image_id: int, request: Optional[ApproveRequest] = None
             if product and product["etsy_listing_id"]:
                 access_token, shop_id = await ensure_etsy_token()
 
+                # Shuffle mockup order so each product gets a random primary
+                shuffled_entries = mockup_entries[:]
+                random.shuffle(shuffled_entries)
+
                 # Upload original poster + all mockups
                 upload_results = await _upload_multi_images_to_etsy(
                     access_token=access_token,
                     shop_id=shop_id,
                     listing_id=product["etsy_listing_id"],
                     original_poster_url=image["url"],
-                    mockup_entries=mockup_entries,
+                    mockup_entries=shuffled_entries,
                 )
 
                 # Save Etsy info back to image_mockups
