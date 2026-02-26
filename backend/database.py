@@ -4,10 +4,13 @@ Handles generation history, credit tracking, and scheduling.
 """
 
 import json
+import logging
 import os
 import asyncpg
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
@@ -256,6 +259,30 @@ CREATE TABLE IF NOT EXISTS strategy_items (
     created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_strategy_items_plan ON strategy_items(plan_id);
+
+CREATE TABLE IF NOT EXISTS autocomplete_cache (
+    id SERIAL PRIMARY KEY,
+    tag TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'etsy',
+    found BOOLEAN NOT NULL DEFAULT false,
+    total_results INTEGER DEFAULT 0,
+    demand TEXT DEFAULT 'dead',
+    position INTEGER,
+    suggestions_json TEXT,
+    checked_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL DEFAULT (NOW() + INTERVAL '7 days')
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_tag_source ON autocomplete_cache(tag, source);
+CREATE INDEX IF NOT EXISTS idx_cache_expires ON autocomplete_cache(expires_at);
+
+-- Performance indexes (added 2026-02-26)
+CREATE INDEX IF NOT EXISTS idx_credit_usage_generation_id ON credit_usage(generation_id);
+CREATE INDEX IF NOT EXISTS idx_seo_refresh_log_product ON seo_refresh_log(printify_product_id);
+CREATE INDEX IF NOT EXISTS idx_seo_refresh_log_created ON seo_refresh_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_used_presets_product ON used_presets(printify_product_id);
+CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_competitor ON competitor_snapshots(competitor_id);
+CREATE INDEX IF NOT EXISTS idx_mockup_templates_active ON mockup_templates(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_strategy_items_plan_status ON strategy_items(plan_id, status);
 """
 
 
@@ -263,95 +290,63 @@ async def init_db():
     """Initialize the database (create tables). Called on app startup."""
     pool = await get_pool()
     async with pool.acquire() as conn:
-        await conn.execute(SCHEMA)
-        # Migrations
-        try:
-            await conn.execute(
-                "ALTER TABLE scheduled_products ADD COLUMN image_url TEXT"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE schedule_settings ADD COLUMN preferred_primary_camera TEXT NOT NULL DEFAULT ''"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE scheduled_products ADD COLUMN etsy_metadata JSONB DEFAULT '{}'::jsonb"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE schedule_settings ADD COLUMN default_shipping_profile_id BIGINT"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE schedule_settings ADD COLUMN default_shop_section_id BIGINT"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE products ADD COLUMN preferred_mockup_url TEXT"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
-            await conn.execute(
-                "ALTER TABLE products ADD COLUMN dovshop_product_id TEXT"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
+        async with conn.transaction():
+            await conn.execute(SCHEMA)
 
-        # Mockup workflow columns
-        try:
+            # Migrations — all use IF NOT EXISTS for idempotency
             await conn.execute(
-                "ALTER TABLE generated_images ADD COLUMN mockup_url TEXT"
+                "ALTER TABLE scheduled_products ADD COLUMN IF NOT EXISTS image_url TEXT"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
             await conn.execute(
-                "ALTER TABLE generated_images ADD COLUMN mockup_status TEXT DEFAULT 'pending'"
+                "ALTER TABLE schedule_settings ADD COLUMN IF NOT EXISTS preferred_primary_camera TEXT NOT NULL DEFAULT ''"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
+            await conn.execute(
+                "ALTER TABLE scheduled_products ADD COLUMN IF NOT EXISTS etsy_metadata JSONB DEFAULT '{}'::jsonb"
+            )
+            await conn.execute(
+                "ALTER TABLE schedule_settings ADD COLUMN IF NOT EXISTS default_shipping_profile_id BIGINT"
+            )
+            await conn.execute(
+                "ALTER TABLE schedule_settings ADD COLUMN IF NOT EXISTS default_shop_section_id BIGINT"
+            )
+            await conn.execute(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS preferred_mockup_url TEXT"
+            )
+            await conn.execute(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS dovshop_product_id TEXT"
+            )
 
-        # Product ↔ Generated Image linking
-        try:
+            # Mockup workflow columns
             await conn.execute(
-                "ALTER TABLE products ADD COLUMN source_image_id INTEGER REFERENCES generated_images(id)"
+                "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS mockup_url TEXT"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-        try:
             await conn.execute(
-                "ALTER TABLE generated_images ADD COLUMN product_id INTEGER REFERENCES products(id)"
+                "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS mockup_status TEXT DEFAULT 'pending'"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # Backfill: link existing products ↔ images by URL
-        await conn.execute("""
-            UPDATE products p
-            SET source_image_id = gi.id
-            FROM generated_images gi
-            WHERE p.image_url = gi.url AND p.source_image_id IS NULL
-        """)
-        await conn.execute("""
-            UPDATE generated_images gi
-            SET product_id = p.id
-            FROM products p
-            WHERE p.image_url = gi.url AND gi.product_id IS NULL
-        """)
+            # Product ↔ Generated Image linking
+            await conn.execute(
+                "ALTER TABLE products ADD COLUMN IF NOT EXISTS source_image_id INTEGER REFERENCES generated_images(id)"
+            )
+            await conn.execute(
+                "ALTER TABLE generated_images ADD COLUMN IF NOT EXISTS product_id INTEGER REFERENCES products(id)"
+            )
 
-        # App settings table for default mockup template
-        try:
+            # Backfill: link existing products ↔ images by URL
+            await conn.execute("""
+                UPDATE products p
+                SET source_image_id = gi.id
+                FROM generated_images gi
+                WHERE p.image_url = gi.url AND p.source_image_id IS NULL
+            """)
+            await conn.execute("""
+                UPDATE generated_images gi
+                SET product_id = p.id
+                FROM products p
+                WHERE p.image_url = gi.url AND gi.product_id IS NULL
+            """)
+
+            # App settings table for default mockup template
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS app_settings (
                     id SERIAL PRIMARY KEY,
@@ -360,124 +355,98 @@ async def init_db():
                     updated_at TIMESTAMP DEFAULT NOW()
                 )
             """)
-        except asyncpg.exceptions.DuplicateTableError:
-            pass
 
-        # Multi-mockup: is_active flag on templates
-        try:
+            # Multi-mockup: is_active flag on templates
             await conn.execute(
-                "ALTER TABLE mockup_templates ADD COLUMN is_active BOOLEAN DEFAULT false"
+                "ALTER TABLE mockup_templates ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT false"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # Per-template blend mode (normal / multiply)
-        try:
+            # Per-template blend mode (normal / multiply)
             await conn.execute(
-                "ALTER TABLE mockup_templates ADD COLUMN blend_mode TEXT DEFAULT 'normal'"
-            )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
-
-        # Backfill: activate the current default template
-        default_id = await conn.fetchval(
-            "SELECT value FROM app_settings WHERE key = 'default_mockup_template_id'"
-        )
-        if default_id:
-            await conn.execute(
-                "UPDATE mockup_templates SET is_active = true WHERE id = $1 AND is_active = false",
-                int(default_id),
+                "ALTER TABLE mockup_templates ADD COLUMN IF NOT EXISTS blend_mode TEXT DEFAULT 'normal'"
             )
 
-        # Multi-mockup: junction table for composed mockups per image
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS image_mockups (
-                id SERIAL PRIMARY KEY,
-                image_id INTEGER NOT NULL REFERENCES generated_images(id) ON DELETE CASCADE,
-                template_id INTEGER NOT NULL REFERENCES mockup_templates(id),
-                mockup_data TEXT NOT NULL,
-                etsy_image_id TEXT,
-                etsy_cdn_url TEXT,
-                rank INTEGER NOT NULL DEFAULT 1,
-                is_included BOOLEAN DEFAULT true,
-                created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(image_id, template_id)
+            # Backfill: activate the current default template
+            default_id = await conn.fetchval(
+                "SELECT value FROM app_settings WHERE key = 'default_mockup_template_id'"
             )
-        """)
-        try:
+            if default_id:
+                await conn.execute(
+                    "UPDATE mockup_templates SET is_active = true WHERE id = $1 AND is_active = false",
+                    int(default_id),
+                )
+
+            # Multi-mockup: junction table for composed mockups per image
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS image_mockups (
+                    id SERIAL PRIMARY KEY,
+                    image_id INTEGER NOT NULL REFERENCES generated_images(id) ON DELETE CASCADE,
+                    template_id INTEGER NOT NULL REFERENCES mockup_templates(id),
+                    mockup_data TEXT NOT NULL,
+                    etsy_image_id TEXT,
+                    etsy_cdn_url TEXT,
+                    rank INTEGER NOT NULL DEFAULT 1,
+                    is_included BOOLEAN DEFAULT true,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(image_id, template_id)
+                )
+            """)
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_image_mockups_image ON image_mockups(image_id)"
             )
-        except Exception:
-            pass
 
-        # Mockup packs
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS mockup_packs (
-                id SERIAL PRIMARY KEY,
-                name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS mockup_pack_templates (
-                id SERIAL PRIMARY KEY,
-                pack_id INTEGER NOT NULL REFERENCES mockup_packs(id) ON DELETE CASCADE,
-                template_id INTEGER NOT NULL REFERENCES mockup_templates(id) ON DELETE CASCADE,
-                rank INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(pack_id, template_id)
-            )
-        """)
-        try:
+            # Mockup packs
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS mockup_packs (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS mockup_pack_templates (
+                    id SERIAL PRIMARY KEY,
+                    pack_id INTEGER NOT NULL REFERENCES mockup_packs(id) ON DELETE CASCADE,
+                    template_id INTEGER NOT NULL REFERENCES mockup_templates(id) ON DELETE CASCADE,
+                    rank INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE(pack_id, template_id)
+                )
+            """)
             await conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_mockup_pack_templates_pack ON mockup_pack_templates(pack_id)"
             )
-        except Exception:
-            pass
 
-        # pack_id on image_mockups
-        try:
+            # pack_id on image_mockups
             await conn.execute(
-                "ALTER TABLE image_mockups ADD COLUMN pack_id INTEGER REFERENCES mockup_packs(id) ON DELETE SET NULL"
+                "ALTER TABLE image_mockups ADD COLUMN IF NOT EXISTS pack_id INTEGER REFERENCES mockup_packs(id) ON DELETE SET NULL"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # color_grade on mockup_packs
-        try:
+            # color_grade on mockup_packs
             await conn.execute(
-                "ALTER TABLE mockup_packs ADD COLUMN color_grade TEXT DEFAULT 'none'"
+                "ALTER TABLE mockup_packs ADD COLUMN IF NOT EXISTS color_grade TEXT DEFAULT 'none'"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # dovshop_included on image_mockups (separate from Etsy's is_included)
-        try:
+            # dovshop_included on image_mockups (separate from Etsy's is_included)
             await conn.execute(
-                "ALTER TABLE image_mockups ADD COLUMN dovshop_included BOOLEAN DEFAULT true"
+                "ALTER TABLE image_mockups ADD COLUMN IF NOT EXISTS dovshop_included BOOLEAN DEFAULT true"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # dovshop_primary on image_mockups (hero image for DovShop)
-        try:
+            # dovshop_primary on image_mockups (hero image for DovShop)
             await conn.execute(
-                "ALTER TABLE image_mockups ADD COLUMN dovshop_primary BOOLEAN DEFAULT false"
+                "ALTER TABLE image_mockups ADD COLUMN IF NOT EXISTS dovshop_primary BOOLEAN DEFAULT false"
             )
-        except asyncpg.exceptions.DuplicateColumnError:
-            pass
 
-        # AI strategy history
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS ai_strategy_history (
-                id SERIAL PRIMARY KEY,
-                result JSONB NOT NULL,
-                product_count INTEGER DEFAULT 0,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
+            # AI strategy history
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS ai_strategy_history (
+                    id SERIAL PRIMARY KEY,
+                    result JSONB NOT NULL,
+                    product_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
 
-    print(f"Database initialized (PostgreSQL)")
+    logger.info("Database initialized (PostgreSQL)")
 
 
 async def save_generation(
@@ -544,16 +513,17 @@ async def save_generated_images(
     images: List[Dict[str, str]],
 ) -> None:
     """Save generated images for a generation."""
+    if not images:
+        return
     pool = await get_pool()
     async with pool.acquire() as conn:
-        for img in images:
-            await conn.execute(
-                """
-                INSERT INTO generated_images (generation_id, image_id, url)
-                VALUES ($1, $2, $3)
-                """,
-                generation_id, img.get("id"), img.get("url"),
-            )
+        await conn.executemany(
+            """
+            INSERT INTO generated_images (generation_id, image_id, url)
+            VALUES ($1, $2, $3)
+            """,
+            [(generation_id, img.get("id"), img.get("url")) for img in images],
+        )
 
 
 async def save_credit_usage(
@@ -840,18 +810,31 @@ async def get_analytics_totals_for_period(days: int = 7) -> Dict[str, Any]:
 
 
 async def get_daily_views_chart(days: int = 30) -> List[Dict[str, Any]]:
-    """Get daily total views for the last N days for chart rendering."""
+    """Get daily NEW views (delta) for the last N days for chart rendering.
+
+    Views in product_analytics are cumulative (Etsy total), so we compute
+    the delta between consecutive snapshots per product and sum those deltas.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT date, COALESCE(SUM(views), 0) as views
-            FROM (
+            WITH snapshots AS (
                 SELECT date, printify_product_id, MAX(views) as views
                 FROM product_analytics
-                WHERE date >= (CURRENT_DATE - $1 * INTERVAL '1 day')::date::text
+                WHERE date >= (CURRENT_DATE - ($1 + 1) * INTERVAL '1 day')::date::text
                 GROUP BY date, printify_product_id
-            ) sub
+            ),
+            deltas AS (
+                SELECT date, printify_product_id,
+                       views - COALESCE(LAG(views) OVER (
+                           PARTITION BY printify_product_id ORDER BY date
+                       ), 0) AS new_views
+                FROM snapshots
+            )
+            SELECT date, GREATEST(SUM(new_views), 0) as views
+            FROM deltas
+            WHERE date >= (CURRENT_DATE - $1 * INTERVAL '1 day')::date::text
             GROUP BY date
             ORDER BY date ASC
             """,
@@ -2047,10 +2030,10 @@ async def set_pack_templates(pack_id: int, template_ids: List[int]) -> None:
         await conn.execute(
             "DELETE FROM mockup_pack_templates WHERE pack_id = $1", pack_id
         )
-        for rank, tid in enumerate(template_ids, start=1):
-            await conn.execute(
+        if template_ids:
+            await conn.executemany(
                 "INSERT INTO mockup_pack_templates (pack_id, template_id, rank) VALUES ($1, $2, $3)",
-                pack_id, tid, rank,
+                [(pack_id, tid, rank) for rank, tid in enumerate(template_ids, start=1)],
             )
 
 
@@ -2111,3 +2094,64 @@ async def get_ai_strategy_history(limit: int = 20) -> list[dict]:
 async def get_ai_strategy_latest() -> Optional[dict]:
     items = await get_ai_strategy_history(limit=1)
     return items[0] if items else None
+
+
+# === Autocomplete Cache ===
+
+async def get_cached_tag(tag: str, source: str = "etsy") -> Optional[Dict[str, Any]]:
+    """Get a cached autocomplete result if it exists and hasn't expired."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT * FROM autocomplete_cache
+               WHERE tag = $1 AND source = $2 AND expires_at > NOW()""",
+            tag.lower().strip(), source
+        )
+        return dict(row) if row else None
+
+
+async def save_cached_tag(tag: str, source: str, found: bool, total_results: int = 0,
+                          demand: str = "dead", position: Optional[int] = None,
+                          suggestions_json: Optional[str] = None):
+    """Upsert a tag validation result into the cache with 7-day TTL."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO autocomplete_cache (tag, source, found, total_results, demand, position, suggestions_json, checked_at, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW() + INTERVAL '7 days')
+               ON CONFLICT (tag, source) DO UPDATE SET
+                   found = EXCLUDED.found,
+                   total_results = EXCLUDED.total_results,
+                   demand = EXCLUDED.demand,
+                   position = EXCLUDED.position,
+                   suggestions_json = EXCLUDED.suggestions_json,
+                   checked_at = NOW(),
+                   expires_at = NOW() + INTERVAL '7 days'""",
+            tag.lower().strip(), source, found, total_results, demand, position, suggestions_json
+        )
+
+
+async def get_cache_stats() -> Dict[str, Any]:
+    """Get autocomplete cache statistics."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE expires_at > NOW()) AS valid,
+                COUNT(*) FILTER (WHERE expires_at <= NOW()) AS expired,
+                COUNT(*) FILTER (WHERE source = 'etsy') AS etsy_count,
+                COUNT(*) FILTER (WHERE source = 'google') AS google_count
+               FROM autocomplete_cache"""
+        )
+        return dict(row) if row else {"total": 0, "valid": 0, "expired": 0}
+
+
+async def clear_expired_cache():
+    """Delete expired cache entries."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM autocomplete_cache WHERE expires_at <= NOW()"
+        )
+        return result

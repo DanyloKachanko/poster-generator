@@ -1,8 +1,8 @@
-import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from deps import printify, etsy
+from routes.etsy_routes import ensure_etsy_token
 import database as db
 
 router = APIRouter(tags=["analytics"])
@@ -11,19 +11,8 @@ router = APIRouter(tags=["analytics"])
 async def _get_active_etsy_listing_ids() -> set:
     """Fetch active Etsy listing IDs for cross-referencing with Printify data."""
     try:
-        tokens = await db.get_etsy_tokens()
-        if not tokens or not tokens.get("shop_id"):
-            return set()
-        access_token = tokens["access_token"]
-        if tokens["expires_at"] < int(time.time()):
-            new_tokens = await etsy.refresh_access_token(tokens["refresh_token"])
-            await db.save_etsy_tokens(
-                access_token=new_tokens.access_token,
-                refresh_token=new_tokens.refresh_token,
-                expires_at=new_tokens.expires_at,
-            )
-            access_token = new_tokens.access_token
-        listings = await etsy.get_all_listings(access_token, tokens["shop_id"])
+        access_token, shop_id = await ensure_etsy_token()
+        listings = await etsy.get_all_listings(access_token, shop_id)
         return {str(l["listing_id"]) for l in listings}
     except Exception:
         return set()
@@ -41,24 +30,22 @@ async def get_dashboard_stats():
         total_orders = sum(a.get("total_orders", 0) for a in analytics)
         total_revenue = sum(a.get("total_revenue_cents", 0) for a in analytics)
 
-        # Count products on Printify, cross-referenced with active Etsy listings
+        # Count products from local DB (no external API dependency)
         products_count = 0
         published_count = 0
-        if printify.is_configured:
-            try:
-                result = await printify.list_products(page=1, limit=50)
-                products = result.get("data", [])
-                products_count = len(products)
-                active_etsy_ids = await _get_active_etsy_listing_ids()
-                published_count = sum(
-                    1 for p in products
-                    if p.get("external") and str(p["external"].get("id", "")) in active_etsy_ids
-                ) if active_etsy_ids else sum(
-                    1 for p in products
-                    if p.get("external") and p["external"].get("id")
-                )
-            except Exception:
-                pass
+        try:
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT
+                        COUNT(*) AS total,
+                        COUNT(*) FILTER (WHERE etsy_listing_id IS NOT NULL) AS published
+                    FROM products
+                """)
+                products_count = row["total"]
+                published_count = row["published"]
+        except Exception:
+            pass
 
         # Time-windowed totals for trend calculation
         current_7d = await db.get_analytics_totals_for_period(7)

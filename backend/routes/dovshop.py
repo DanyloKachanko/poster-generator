@@ -1,7 +1,10 @@
 """DovShop API routes for product publishing and management"""
 
 import json
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -489,7 +492,7 @@ async def assign_pack_pattern(request: AssignPackPatternRequest, req: Request):
                 })
                 updated += 1
             except Exception as e:
-                print(f"[pack-pattern] Failed to update DovShop product {dovshop_product_id}: {e}")
+                logger.warning("Failed to update DovShop product %s: %s", dovshop_product_id, e)
 
     return {"total": total, "updated": updated}
 

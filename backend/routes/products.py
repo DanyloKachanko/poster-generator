@@ -1,13 +1,13 @@
 import asyncio
 import logging
 import re
-import time
 from typing import Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 import httpx
 from printify import PrintifyAPI
 from deps import printify, etsy as etsy_service, listing_gen, publish_scheduler
+from routes.etsy_routes import ensure_etsy_token
 import database as db
 
 logger = logging.getLogger(__name__)
@@ -181,9 +181,43 @@ async def list_unlinked_images(limit: int = 50, offset: int = 0):
 
 @router.get("/products/{printify_product_id}/mockups")
 async def get_product_mockups(printify_product_id: str):
-    """List all mockup images for a Printify product with camera label and size info."""
+    """List all mockup images for a product — from local DB (Etsy CDN) first, Printify as fallback."""
+    # Try local DB first (our composed mockups with Etsy CDN URLs)
+    local = await db.get_product_by_printify_id(printify_product_id)
+    if local and local.get("source_image_id"):
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch("""
+                SELECT im.*, mt.name AS camera_label
+                FROM image_mockups im
+                JOIN mockup_templates mt ON mt.id = im.template_id
+                WHERE im.image_id = $1 AND im.is_included = true
+                ORDER BY im.rank ASC
+            """, local["source_image_id"])
+
+        if rows:
+            preferred = local.get("preferred_mockup_url") or ""
+            mockups = []
+            for row in rows:
+                src = row["etsy_cdn_url"] or row["mockup_data"]
+                is_primary = (src == preferred) if preferred else (row["rank"] == 1)
+                mockups.append({
+                    "src": src,
+                    "is_default": is_primary,
+                    "position": "front",
+                    "variant_ids": [],
+                    "camera_label": row["camera_label"] or "",
+                    "size": "",
+                })
+            return {
+                "printify_product_id": printify_product_id,
+                "title": local.get("title", ""),
+                "mockups": mockups,
+            }
+
+    # Fallback: Printify API
     if not printify.is_configured:
-        raise HTTPException(status_code=400, detail="Printify not configured")
+        return {"printify_product_id": printify_product_id, "title": "", "mockups": []}
 
     try:
         product = await printify.get_product(printify_product_id)
@@ -196,10 +230,8 @@ async def get_product_mockups(printify_product_id: str):
     mockups = []
     for img in images:
         src = img.get("src", "")
-        # Extract camera label
         m = re.search(r'camera_label=([^&]+)', src)
         camera_label = m.group(1) if m else ""
-        # Extract size from variant in URL
         m2 = re.search(r'/mockup/[^/]+/(\d+)/', src)
         size = vid_to_size.get(int(m2.group(1)), "") if m2 else ""
 
@@ -244,14 +276,7 @@ async def set_primary_mockup(printify_product_id: str, request: SetPrimaryMockup
     if not etsy_listing_id:
         raise HTTPException(status_code=400, detail="No Etsy listing found for this product")
 
-    # Get Etsy token
-    tokens = await db.get_etsy_tokens()
-    if not tokens:
-        raise HTTPException(status_code=400, detail="Etsy not connected")
-    access_token = tokens["access_token"]
-    shop_id = tokens.get("shop_id", "")
-    if not shop_id:
-        raise HTTPException(status_code=400, detail="Etsy shop ID not set")
+    access_token, shop_id = await ensure_etsy_token()
 
     # Download the mockup image
     try:
@@ -304,14 +329,7 @@ async def upload_custom_mockup(
     if not etsy_listing_id:
         raise HTTPException(status_code=400, detail="No Etsy listing found for this product")
 
-    # Get Etsy token
-    tokens = await db.get_etsy_tokens()
-    if not tokens:
-        raise HTTPException(status_code=400, detail="Etsy not connected")
-    access_token = tokens["access_token"]
-    shop_id = tokens.get("shop_id", "")
-    if not shop_id:
-        raise HTTPException(status_code=400, detail="Etsy shop ID not set")
+    access_token, shop_id = await ensure_etsy_token()
 
     if not etsy_service:
         raise HTTPException(status_code=500, detail="Etsy service not configured")
@@ -363,21 +381,7 @@ async def fix_descriptions():
     if not etsy_service:
         raise HTTPException(status_code=400, detail="Etsy service not configured")
 
-    tokens = await db.get_etsy_tokens()
-    if not tokens:
-        raise HTTPException(status_code=400, detail="Etsy not connected")
-    access_token = tokens["access_token"]
-    shop_id = tokens.get("shop_id", "")
-
-    # Refresh token if expired
-    if tokens["expires_at"] < int(time.time()):
-        new_tokens = await etsy_service.refresh_access_token(tokens["refresh_token"])
-        await db.save_etsy_tokens(
-            access_token=new_tokens.access_token,
-            refresh_token=new_tokens.refresh_token,
-            expires_at=new_tokens.expires_at,
-        )
-        access_token = new_tokens.access_token
+    access_token, shop_id = await ensure_etsy_token()
 
     products = await db.get_all_products(status="published", limit=200)
     items = products.get("items", [])
@@ -449,20 +453,7 @@ async def auto_seo_refresh(request: SeoRefreshRequest = SeoRefreshRequest()):
     if not listing_gen or not listing_gen.api_key:
         raise HTTPException(status_code=400, detail="Anthropic API key not configured")
 
-    tokens = await db.get_etsy_tokens()
-    if not tokens:
-        raise HTTPException(status_code=400, detail="Etsy not connected")
-    access_token = tokens["access_token"]
-    shop_id = tokens.get("shop_id", "")
-
-    if tokens["expires_at"] < int(time.time()):
-        new_tokens = await etsy_service.refresh_access_token(tokens["refresh_token"])
-        await db.save_etsy_tokens(
-            access_token=new_tokens.access_token,
-            refresh_token=new_tokens.refresh_token,
-            expires_at=new_tokens.expires_at,
-        )
-        access_token = new_tokens.access_token
+    access_token, shop_id = await ensure_etsy_token()
 
     candidates = await db.get_seo_refresh_candidates(
         min_days_since_publish=request.min_days_since_publish,

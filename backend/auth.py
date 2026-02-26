@@ -9,7 +9,7 @@ import time
 
 # PBKDF2-SHA256 hash of the admin password
 _SALT = "poster-gen-auth-v1"
-_PASSWORD_HASH = "77wT2pNbyONVpFNpxr/ObRU++CdDsfS3iCXwTrA37PI="
+_PASSWORD_HASH = os.getenv("AUTH_PASSWORD_HASH", "77wT2pNbyONVpFNpxr/ObRU++CdDsfS3iCXwTrA37PI=")
 _ADMIN_USER = "admin"
 _TOKEN_TTL = 7 * 24 * 3600  # 7 days
 

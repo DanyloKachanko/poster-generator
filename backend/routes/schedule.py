@@ -1,9 +1,12 @@
+import logging
 from typing import Optional, List
 from datetime import datetime as _dt
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from deps import printify, publish_scheduler
 import database as db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["schedule"])
 

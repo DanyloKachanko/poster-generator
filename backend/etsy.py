@@ -1,5 +1,6 @@
 """Etsy API v3 client with OAuth 2.0 PKCE flow"""
 
+import logging
 import os
 import time
 import secrets
@@ -9,6 +10,8 @@ import urllib.parse
 import httpx
 from typing import Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 # Etsy color property IDs and values (standard across all taxonomies)
@@ -401,7 +404,7 @@ class EtsyAPI:
             elif value is not None:
                 form_data[key] = str(value)
         encoded_body = urllib.parse.urlencode(form_data)
-        print(f"[Etsy update_listing] PATCH listing {listing_id} body: {encoded_body[:500]}")
+        logger.debug(f"PATCH listing {listing_id} body: {encoded_body[:500]}")
 
         async with httpx.AsyncClient() as client:
             headers = {
@@ -415,10 +418,10 @@ class EtsyAPI:
                 timeout=15.0,
             )
             if response.status_code >= 400:
-                print(f"[Etsy update_listing] {response.status_code} for listing {listing_id}: {response.text}")
+                logger.warning(f"update_listing {response.status_code} for listing {listing_id}: {response.text}")
             else:
                 resp_data = response.json()
-                print(f"[Etsy update_listing] OK title={resp_data.get('title','?')[:60]} tags={len(resp_data.get('tags',[]))} materials={resp_data.get('materials',[])} ")
+                logger.info(f"update_listing OK title={resp_data.get('title','?')[:60]} tags={len(resp_data.get('tags',[]))} materials={resp_data.get('materials',[])} ")
             response.raise_for_status()
             return response.json()
 
@@ -543,7 +546,7 @@ class EtsyAPI:
                 timeout=15.0,
             )
             if response.status_code >= 400:
-                print(f"[Etsy update_property] {response.status_code} for listing {listing_id} prop {property_id}: {response.text}")
+                logger.warning(f"update_property {response.status_code} for listing {listing_id} prop {property_id}: {response.text}")
             response.raise_for_status()
             return response.json()
 
@@ -597,6 +600,6 @@ class EtsyAPI:
                 timeout=60.0,
             )
             if response.status_code >= 400:
-                print(f"[Etsy set_image_alt] {response.status_code} img {listing_image_id}: {response.text[:300]}")
+                logger.warning(f"set_image_alt {response.status_code} img {listing_image_id}: {response.text[:300]}")
             response.raise_for_status()
             return response.json()

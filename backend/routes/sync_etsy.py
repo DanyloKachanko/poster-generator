@@ -5,6 +5,7 @@ Fetches all Etsy listings and updates products with etsy_listing_id.
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException
 from deps import etsy
+from routes.etsy_routes import ensure_etsy_token
 import database as db
 
 router = APIRouter(tags=["sync"])
@@ -16,16 +17,7 @@ async def sync_etsy_listings():
     Fetch all Etsy listings and sync with local database.
     Matches listings to products and updates etsy_listing_id field.
     """
-    # Get tokens from database
-    tokens = await db.get_etsy_tokens()
-    if not tokens or not tokens.get("access_token") or not tokens.get("shop_id"):
-        raise HTTPException(
-            status_code=400,
-            detail="Etsy not connected. Please connect via /etsy/auth-url first."
-        )
-
-    access_token = tokens["access_token"]
-    shop_id = str(tokens["shop_id"])
+    access_token, shop_id = await ensure_etsy_token()
 
     try:
         # Fetch all active listings from Etsy (auto-pagination)

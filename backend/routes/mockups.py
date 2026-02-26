@@ -2,9 +2,12 @@ import asyncio
 import base64
 import io
 import json
+import logging
 import random
 import time
 from typing import Optional, List, Tuple
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
@@ -452,7 +455,7 @@ async def _compose_all_templates(
         bbox_h = int(max(ys)) - bbox_y
 
         if bbox_w < 10 or bbox_h < 10:
-            print(f"[mockup] Skipping template {template['id']} — poster zone too small")
+            logger.info(f"Skipping template {template['id']} — poster zone too small")
             continue
 
         poster_resized = poster_img.resize((bbox_w, bbox_h), Image.LANCZOS)
@@ -528,14 +531,14 @@ async def _upload_multi_images_to_etsy(
             images_resp = await etsy.get_listing_images(access_token, listing_id)
             old_images = [img["listing_image_id"] for img in images_resp.get("results", [])]
         except Exception as e:
-            print(f"[mockup] Warning: could not list images for {listing_id}: {e}")
+            logger.warning(f": could not list images for {listing_id}: {e}")
 
         # Delete all except last (Etsy needs at least 1)
         if old_images:
             kept_image = old_images[-1]
             to_delete = old_images[:-1]
             if to_delete:
-                print(f"[mockup] Deleting {len(to_delete)} of {len(old_images)} old images from {listing_id}")
+                logger.info(f"Deleting {len(to_delete)} of {len(old_images)} old images from {listing_id}")
                 for old_id in to_delete:
                     try:
                         await etsy.delete_listing_image(
@@ -544,7 +547,7 @@ async def _upload_multi_images_to_etsy(
                         )
                         await asyncio.sleep(0.2)
                     except Exception as e:
-                        print(f"[mockup] Warning: failed to delete image {old_id}: {e}")
+                        logger.warning(f": failed to delete image {old_id}: {e}")
 
     upload_results = []
     rank = 1
@@ -565,7 +568,7 @@ async def _upload_multi_images_to_etsy(
             rank += 1
             await asyncio.sleep(0.3)
         except Exception as e:
-            print(f"[mockup] Failed to upload mockup {mockup_db_id}: {e}")
+            logger.error(f"Failed to upload mockup {mockup_db_id}: {e}")
 
     # Delete the last kept old image (only when we had existing images)
     if kept_image:
@@ -575,7 +578,7 @@ async def _upload_multi_images_to_etsy(
                 listing_id=listing_id, listing_image_id=str(kept_image),
             )
         except Exception as e:
-            print(f"[mockup] Warning: failed to delete last image {kept_image}: {e}")
+            logger.warning(f": failed to delete last image {kept_image}: {e}")
 
     return upload_results
 
@@ -637,13 +640,13 @@ async def cleanup_original_posters():
                     total_deleted += 1
                     await asyncio.sleep(0.2)
                 except Exception as e:
-                    print(f"[cleanup] Failed to delete image {img_id} from {row['etsy_listing_id']}: {e}")
+                    logger.warning(f"Failed to delete image {img_id} from {row['etsy_listing_id']}: {e}")
 
             if to_delete:
                 cleaned += 1
-                print(f"[cleanup] Listing {row['etsy_listing_id']}: deleted {len(to_delete)} non-mockup images")
+                logger.info(f"Listing {row['etsy_listing_id']}: deleted {len(to_delete)} non-mockup images")
         except Exception as e:
-            print(f"[cleanup] Error processing listing {row['etsy_listing_id']}: {e}")
+            logger.error(f"Error processing listing {row['etsy_listing_id']}: {e}")
 
     return {"total": len(rows), "cleaned": cleaned, "deleted_images": total_deleted}
 
@@ -960,7 +963,7 @@ async def update_pack(pack_id: int, request: UpdatePackRequest):
     pack["affected_products"] = affected or 0
     if affected and affected > 0:
         asyncio.create_task(_background_reapply_pack(pack_id))
-        print(f"[pack] Pack {pack_id} updated — reapplying to {affected} products in background")
+        logger.info(f" Pack {pack_id} updated — reapplying to {affected} products in background")
 
     return pack
 
@@ -1002,7 +1005,7 @@ async def _background_reapply_pack(pack_id: int):
         try:
             access_token, shop_id = await ensure_etsy_token()
         except Exception as e:
-            print(f"[pack-reapply] Etsy auth failed: {e}")
+            logger.error(f"pack-reapply: Etsy auth failed: {e}")
             return
 
         ok = 0
@@ -1041,13 +1044,13 @@ async def _background_reapply_pack(pack_id: int):
                         await db.set_product_preferred_mockup(row["printify_product_id"], ur["etsy_cdn_url"])
                         break
                 ok += 1
-                print(f"[pack-reapply] Product {row['id']} OK ({ok}/{len(rows)})")
+                logger.info(f"pack-reapply: Product {row['id']} OK ({ok}/{len(rows)})")
             except Exception as e:
-                print(f"[pack-reapply] Product {row['id']} FAILED: {e}")
+                logger.error(f"pack-reapply: Product {row['id']} FAILED: {e}")
 
-        print(f"[pack-reapply] Done: {ok}/{len(rows)} products updated for pack {pack_id}")
+        logger.info(f"pack-reapply: Done: {ok}/{len(rows)} products updated for pack {pack_id}")
     except Exception as e:
-        print(f"[pack-reapply] Background task failed: {e}")
+        logger.error(f"pack-reapply: Background task failed: {e}")
 
 
 @router.delete("/mockups/packs/{pack_id}")
@@ -1506,7 +1509,7 @@ async def reapply_approved_mockups(request: Optional[ReapplyRequest] = None):
     total = len(rows)
     _reapply_status = {"running": True, "total": total, "done": 0, "ok": 0, "errors": []}
     asyncio.create_task(_background_reapply(pack_id, [dict(r) for r in rows]))
-    print(f"[reapply] Started background reapply for {total} products (pack_id={pack_id})")
+    logger.info(f"reapply: Started background reapply for {total} products (pack_id={pack_id})")
 
     return {"started": True, "total": total, "message": f"Reapplying to {total} products in background..."}
 
@@ -1538,7 +1541,7 @@ async def _background_reapply(pack_id: Optional[int], rows: list):
         except Exception as e:
             _reapply_status["running"] = False
             _reapply_status["errors"].append(f"Etsy auth failed: {e}")
-            print(f"[reapply] Etsy auth failed: {e}")
+            logger.error(f"reapply: Etsy auth failed: {e}")
             return
 
         for row in rows:
@@ -1579,16 +1582,16 @@ async def _background_reapply(pack_id: Optional[int], rows: list):
                         break
 
                 _reapply_status["ok"] += 1
-                print(f"[reapply] Product {row['id']} OK ({_reapply_status['done'] + 1}/{_reapply_status['total']})")
+                logger.info(f"reapply: Product {row['id']} OK ({_reapply_status['done'] + 1}/{_reapply_status['total']})")
             except Exception as e:
                 _reapply_status["errors"].append(f"Product {row['id']}: {e}")
-                print(f"[reapply] Product {row['id']} FAILED: {e}")
+                logger.error(f"reapply: Product {row['id']} FAILED: {e}")
 
             _reapply_status["done"] += 1
 
-        print(f"[reapply] Done: {_reapply_status['ok']}/{_reapply_status['total']} products updated")
+        logger.info(f"reapply: Done: {_reapply_status['ok']}/{_reapply_status['total']} products updated")
     except Exception as e:
-        print(f"[reapply] Background task crashed: {e}")
+        logger.error(f"reapply: Background task crashed: {e}")
         _reapply_status["errors"].append(f"Fatal: {e}")
     finally:
         _reapply_status["running"] = False
@@ -1668,7 +1671,7 @@ async def apply_mockups_to_published():
     asyncio.create_task(_background_apply_missing(pack_id, rows))
     compose_count = len(no_mockups)
     upload_count = len(not_uploaded)
-    print(f"[apply-missing] Started for {total} products (compose={compose_count}, upload={upload_count}) with pack {pack_id}")
+    logger.info(f"apply-missing: Started for {total} products (compose={compose_count}, upload={upload_count}) with pack {pack_id}")
 
     return {
         "started": True, "total": total, "pack_id": pack_id,
@@ -1700,7 +1703,7 @@ async def _background_apply_missing(pack_id: int, rows: list):
         except Exception as e:
             _apply_missing_status["running"] = False
             _apply_missing_status["errors"].append(f"Etsy auth failed: {e}")
-            print(f"[apply-missing] Etsy auth failed: {e}")
+            logger.error(f"apply-missing: Etsy auth failed: {e}")
             return
 
         for row in rows:
@@ -1739,16 +1742,16 @@ async def _background_apply_missing(pack_id: int, rows: list):
                         break
 
                 _apply_missing_status["ok"] += 1
-                print(f"[apply-missing] Product {row['id']} OK ({_apply_missing_status['done'] + 1}/{_apply_missing_status['total']})")
+                logger.info(f"apply-missing: Product {row['id']} OK ({_apply_missing_status['done'] + 1}/{_apply_missing_status['total']})")
             except Exception as e:
                 _apply_missing_status["errors"].append(f"Product {row['id']}: {e}")
-                print(f"[apply-missing] Product {row['id']} FAILED: {e}")
+                logger.error(f"apply-missing: Product {row['id']} FAILED: {e}")
 
             _apply_missing_status["done"] += 1
 
-        print(f"[apply-missing] Done: {_apply_missing_status['ok']}/{_apply_missing_status['total']} products updated")
+        logger.info(f"apply-missing: Done: {_apply_missing_status['ok']}/{_apply_missing_status['total']} products updated")
     except Exception as e:
-        print(f"[apply-missing] Background task crashed: {e}")
+        logger.error(f"apply-missing: Background task crashed: {e}")
         _apply_missing_status["errors"].append(f"Fatal: {e}")
     finally:
         _apply_missing_status["running"] = False

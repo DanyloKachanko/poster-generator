@@ -6,9 +6,12 @@ Handles generation of single or all prompts from a preset.
 
 import json
 import asyncio
+import logging
 import uuid
 from pathlib import Path
 from typing import Optional, Dict, List, Any
+
+logger = logging.getLogger(__name__)
 
 PRESETS_DIR = Path(__file__).parent / "saved_presets"
 
@@ -39,7 +42,7 @@ class PresetsManager:
                 data["_file"] = str(f)
                 self._presets[preset_id] = data
             except Exception as e:
-                print(f"[PresetsManager] Failed to load {f.name}: {e}")
+                logger.warning("Failed to load %s: %s", f.name, e)
 
     def list_presets(self) -> List[dict]:
         result = []

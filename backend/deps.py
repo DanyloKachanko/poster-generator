@@ -1,6 +1,9 @@
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 from leonardo import LeonardoAI
 from export import PosterExporter
@@ -23,7 +26,7 @@ load_dotenv()  # Also try local .env as fallback
 # API Keys
 LEONARDO_API_KEY = os.getenv("LEONARDO_API_KEY")
 if not LEONARDO_API_KEY:
-    print("WARNING: LEONARDO_API_KEY not set. API calls will fail.")
+    logger.warning("LEONARDO_API_KEY not set. API calls will fail.")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 

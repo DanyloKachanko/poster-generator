@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from deps import etsy
+from routes.etsy_routes import ensure_etsy_token
 import database as db
 
 router = APIRouter(tags=["sync"])
@@ -21,16 +22,7 @@ async def get_unmatched_products():
     Get products without etsy_listing_id and unmatched Etsy listings.
     Returns data for manual matching UI.
     """
-    # Get tokens from database
-    tokens = await db.get_etsy_tokens()
-    if not tokens or not tokens.get("access_token") or not tokens.get("shop_id"):
-        raise HTTPException(
-            status_code=400,
-            detail="Etsy not connected. Please connect via /etsy/auth-url first."
-        )
-
-    access_token = tokens["access_token"]
-    shop_id = str(tokens["shop_id"])
+    access_token, shop_id = await ensure_etsy_token()
 
     try:
         # Fetch all active listings from Etsy
@@ -163,12 +155,7 @@ async def import_etsy_listing(listing_id: str):
     Creates a draft product with etsy_listing_id set.
     """
     try:
-        # Get tokens from database
-        tokens = await db.get_etsy_tokens()
-        if not tokens or not tokens.get("access_token"):
-            raise HTTPException(status_code=400, detail="Etsy not connected")
-
-        access_token = tokens["access_token"]
+        access_token, _shop_id = await ensure_etsy_token()
 
         # Fetch listing details from Etsy
         import httpx

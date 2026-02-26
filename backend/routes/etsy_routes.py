@@ -1,8 +1,12 @@
+import logging
 import re
 import time
 import asyncio
 import unicodedata
 from typing import Optional, List
+from listing_generator import sanitize_tag
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
@@ -65,7 +69,7 @@ async def ensure_etsy_token() -> tuple:
                         shop_id=shop_id,
                     )
         except Exception as e:
-            print(f"[ensure_etsy_token] auto-fetch shop_id failed: {e}")
+            logger.warning(f"auto-fetch shop_id failed: {e}")
 
     if not shop_id:
         raise HTTPException(status_code=400, detail="No Etsy shop_id stored. Reconnect Etsy.")
@@ -92,13 +96,8 @@ def validate_seo_data(data: dict) -> dict:
     tags = data.get("tags", [])
     for i, tag in enumerate(tags):
         if len(tag) > 20:
-            words = tag.split()
-            shortened = " ".join(words[:3])
-            while len(shortened) > 20 and len(words) > 1:
-                words = words[:-1]
-                shortened = " ".join(words)
             old = tags[i]
-            tags[i] = shortened[:20]
+            tags[i] = sanitize_tag(tag)
             errors.append(f"Tag truncated: '{old}' -> '{tags[i]}'")
 
     # Remove single-word tags
@@ -111,7 +110,7 @@ def validate_seo_data(data: dict) -> dict:
     if len(tags) < 13:
         errors.append(f"Only {len(tags)} tags, padding to 13")
     while len(tags) < 13:
-        tags.append(f"wall art print {len(tags)}"[:20])
+        tags.append(sanitize_tag(f"wall art print {len(tags)}"))
     tags = tags[:13]
     data["tags"] = tags
 
@@ -248,28 +247,28 @@ async def etsy_oauth_callback(code: str, state: str):
         shop_id = ""
         try:
             user_info = await etsy.get_me(tokens.access_token)
-            print(f"[Etsy callback] get_me response: {user_info}")
+            logger.debug(f" get_me response: {user_info}")
             etsy_user_id = str(user_info.get("user_id", ""))
             shop_id = str(user_info.get("shop_id", ""))
         except Exception as e:
-            print(f"[Etsy callback] get_me failed: {e}")
+            logger.debug(f" get_me failed: {e}")
             # Fallback: parse user_id from token (format: "{user_id}.{rest}")
             token_parts = tokens.access_token.split(".")
             if token_parts:
                 etsy_user_id = token_parts[0]
-            print(f"[Etsy callback] parsed user_id from token: {etsy_user_id}")
+            logger.debug(f" parsed user_id from token: {etsy_user_id}")
 
         # If shop_id still missing, use authenticated shops endpoint
         if not shop_id and etsy_user_id:
             try:
                 shops_data = await etsy.get_user_shops(tokens.access_token, etsy_user_id)
-                print(f"[Etsy callback] get_user_shops response: {shops_data}")
+                logger.debug(f" get_user_shops response: {shops_data}")
                 if shops_data.get("shop_id"):
                     shop_id = str(shops_data["shop_id"])
             except Exception as e:
-                print(f"[Etsy callback] get_user_shops failed: {e}")
+                logger.debug(f" get_user_shops failed: {e}")
 
-        print(f"[Etsy callback] final: user_id={etsy_user_id}, shop_id={shop_id}")
+        logger.info(f"OAuth callback: user_id={etsy_user_id}, shop_id={shop_id}")
 
         await db.save_etsy_tokens(
             access_token=tokens.access_token,
@@ -435,24 +434,29 @@ async def sync_etsy_orders():
 
 @router.get("/products/manager")
 async def get_product_manager_data():
-    """Get all products with Printify, analytics, and Etsy data merged."""
+    """Get all products from local DB with analytics and Etsy data merged."""
     try:
+        pool = await db.get_pool()
+
+        # All products from local DB
+        async with pool.acquire() as conn:
+            db_products = await conn.fetch("""
+                SELECT p.*,
+                       COALESCE(
+                           p.preferred_mockup_url,
+                           (SELECT im.etsy_cdn_url
+                            FROM image_mockups im
+                            WHERE im.image_id = p.source_image_id
+                              AND im.etsy_cdn_url IS NOT NULL
+                            ORDER BY im.rank LIMIT 1)
+                       ) AS mockup_url
+                FROM products p
+                ORDER BY p.created_at DESC
+            """)
+
         # Analytics from DB
         analytics = await db.get_analytics_summary()
         analytics_map = {a["printify_product_id"]: a for a in analytics}
-
-        # Printify products
-        products = []
-        if printify.is_configured:
-            page = 1
-            while True:
-                result = await printify.list_products(page=page, limit=50)
-                data = result.get("data", [])
-                products.extend(data)
-                total = result.get("total", 0)
-                if page * 50 >= total or not data:
-                    break
-                page += 1
 
         # Etsy listing data (for SEO scoring on frontend)
         etsy_listings_map = {}
@@ -482,70 +486,26 @@ async def get_product_manager_data():
         except Exception:
             pass
 
-        # Load custom mockup thumbnails from DB (preferred_mockup_url or first image_mockup)
-        mockup_thumbs = {}
-        try:
-            pool = await db.get_pool()
-            async with pool.acquire() as conn:
-                rows = await conn.fetch("""
-                    SELECT p.printify_product_id,
-                           COALESCE(
-                               p.preferred_mockup_url,
-                               (SELECT im.etsy_cdn_url
-                                FROM image_mockups im
-                                WHERE im.image_id = p.source_image_id
-                                  AND im.etsy_cdn_url IS NOT NULL
-                                ORDER BY im.rank LIMIT 1)
-                           ) AS mockup_url
-                    FROM products p
-                    WHERE p.printify_product_id = ANY($1::text[])
-                """, [p["id"] for p in products])
-                for row in rows:
-                    if row["mockup_url"]:
-                        mockup_thumbs[row["printify_product_id"]] = row["mockup_url"]
-        except Exception:
-            pass
-
         # Merge
         merged = []
-        for product in products:
-            pid = product["id"]
-            a = analytics_map.pop(pid, {})
+        for product in db_products:
+            pid = product["printify_product_id"]
+            a = analytics_map.get(pid, {})
 
-            # Prefer custom mockup, fall back to Printify image
-            thumbnail = mockup_thumbs.get(pid)
-            if not thumbnail:
-                for img in product.get("images", []):
-                    if img.get("is_default"):
-                        thumbnail = img.get("src")
-                        break
-                if not thumbnail and product.get("images"):
-                    thumbnail = product["images"][0].get("src")
-
-            enabled_variants = [v for v in product.get("variants", []) if v.get("is_enabled")]
-            prices = [v.get("price", 0) for v in enabled_variants]
-            min_price = min(prices) if prices else 0
-            max_price = max(prices) if prices else 0
-
-            external = product.get("external")
-            etsy_listing_id = None
-            etsy_url = None
-            if external and external.get("id"):
-                etsy_listing_id = str(external["id"])
-                handle = external.get("handle", "")
-                etsy_url = handle if handle.startswith("http") else f"https://{handle}" if handle else None
+            thumbnail = product["mockup_url"] or product["image_url"]
+            etsy_listing_id = product["etsy_listing_id"]
+            status = "on_etsy" if etsy_listing_id else "draft"
 
             etsy_data = etsy_listings_map.get(etsy_listing_id, {}) if etsy_listing_id else {}
-            status = "on_etsy" if etsy_listing_id else "draft"
 
             merged.append({
                 "printify_product_id": pid,
-                "title": product.get("title", "Untitled"),
+                "title": product["title"] or "Untitled",
                 "thumbnail": thumbnail,
                 "status": status,
-                "min_price": min_price,
-                "max_price": max_price,
-                "etsy_url": etsy_url,
+                "min_price": 0,
+                "max_price": 0,
+                "etsy_url": None,
                 "etsy_listing_id": etsy_listing_id,
                 "total_views": a.get("total_views", 0),
                 "total_favorites": a.get("total_favorites", 0),
@@ -555,7 +515,7 @@ async def get_product_manager_data():
                 "etsy_tags": etsy_data.get("tags", []),
                 "etsy_description": etsy_data.get("description", ""),
                 "etsy_materials": etsy_data.get("materials", []),
-                "created_at": product.get("created_at", ""),
+                "created_at": str(product["created_at"] or ""),
             })
 
         return {"products": merged}
@@ -659,7 +619,7 @@ async def update_etsy_listing(listing_id: str, request: UpdateEtsyListingRequest
         if partners:
             data["production_partner_ids"] = [p["production_partner_id"] for p in partners]
     except Exception as e:
-        print(f"[Etsy] Failed to fetch production partners: {e}")
+        logger.warning(f"Failed to fetch production partners: {e}")
 
     if not data and request.primary_color is None and request.secondary_color is None:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -680,7 +640,7 @@ async def update_etsy_listing(listing_id: str, request: UpdateEtsyListingRequest
                     [request.primary_color],
                 )
             except Exception as e:
-                print(f"[Etsy] Failed to set primary color: {e}")
+                logger.warning(f" Failed to set primary color: {e}")
         if request.secondary_color and request.secondary_color in ETSY_COLOR_VALUES:
             try:
                 await etsy.update_listing_property(
@@ -690,7 +650,7 @@ async def update_etsy_listing(listing_id: str, request: UpdateEtsyListingRequest
                     [request.secondary_color],
                 )
             except Exception as e:
-                print(f"[Etsy] Failed to set secondary color: {e}")
+                logger.warning(f" Failed to set secondary color: {e}")
 
         return result
     except httpx.HTTPStatusError as e:
@@ -783,7 +743,7 @@ async def update_etsy_images_alt_texts(listing_id: str, request: BulkAltTextRequ
                 )
                 results.append({"image_id": img["listing_image_id"], "status": "ok"})
             except Exception as e:
-                print(f"[Etsy alt_text] Failed for image {img['listing_image_id']}: {e}")
+                logger.warning(f" Failed for image {img['listing_image_id']}: {e}")
                 results.append({"image_id": img["listing_image_id"], "status": "error", "error": str(e)})
         return {"results": results}
     except httpx.HTTPStatusError as e:
