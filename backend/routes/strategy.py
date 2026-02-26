@@ -18,10 +18,6 @@ import database as db
 router = APIRouter(tags=["strategy"])
 
 
-# ── In-memory execution task store ──────────────────────────────────
-_execution_tasks: dict[str, dict] = {}
-
-
 # ── Pydantic models ────────────────────────────────────────────────
 
 class CreatePlanRequest(BaseModel):
@@ -334,15 +330,14 @@ async def execute_plan(plan_id: int):
     task_id = str(uuid.uuid4())
     items_list = [dict(i) for i in items]
 
-    _execution_tasks[task_id] = {
-        "status": "running",
-        "step": 0,
-        "total": len(items_list),
-        "completed": 0,
-        "current_item": None,
-        "current_title": None,
-        "errors": [],
-    }
+    await db.create_background_task(task_id, "plan_execute", total=len(items_list))
+    await db.update_background_task(
+        task_id, status="running",
+        progress_json={
+            "step": 0, "completed": 0,
+            "current_item": None, "current_title": None, "errors": [],
+        },
+    )
 
     asyncio.create_task(_execute_plan_items(task_id, plan_id, items_list))
 
@@ -355,36 +350,57 @@ async def execute_plan(plan_id: int):
 @router.get("/strategy/execute/status/{task_id}")
 async def get_execution_status(task_id: str):
     """Poll execution progress."""
-    task = _execution_tasks.get(task_id)
+    task = await db.get_background_task(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    progress = task.get("progress_json") or {}
+    return {
+        "status": task["status"],
+        "step": progress.get("step", 0),
+        "total": task.get("total", 0),
+        "completed": progress.get("completed", 0),
+        "current_item": progress.get("current_item"),
+        "current_title": progress.get("current_title"),
+        "errors": progress.get("errors", []),
+    }
 
 
 async def _execute_plan_items(task_id: str, plan_id: int, items: list):
     """Background worker: execute each plan item sequentially."""
-    task = _execution_tasks[task_id]
+    completed_count = 0
+    errors_list = []
 
     for idx, item in enumerate(items):
         item_id = item["id"]
-        task["step"] = idx + 1
-        task["current_item"] = item_id
-        task["current_title"] = item.get("title_hint", f"Item {item_id}")
+        await db.update_background_task(
+            task_id, done=idx,
+            progress_json={
+                "step": idx + 1, "completed": completed_count,
+                "current_item": item_id,
+                "current_title": item.get("title_hint", f"Item {item_id}"),
+                "errors": errors_list,
+            },
+        )
 
         try:
             await _execute_single_plan_item(item)
-            task["completed"] += 1
+            completed_count += 1
         except Exception as e:
             await _reset_item_on_error(item_id)
-            task["errors"].append({
+            errors_list.append({
                 "item_id": item_id,
                 "error": str(e),
             })
 
     await _finalize_plan(plan_id)
-    task["status"] = "completed"
-    task["current_item"] = None
-    task["current_title"] = None
+    await db.update_background_task(
+        task_id, status="completed", done=len(items),
+        progress_json={
+            "step": len(items), "completed": completed_count,
+            "current_item": None, "current_title": None,
+            "errors": errors_list,
+        },
+    )
 
 
 async def _execute_single_plan_item(item: dict):

@@ -472,19 +472,23 @@ class ReapplyRequest(BaseModel):
     pack_id: Optional[int] = None
 
 
-# Track background reapply progress
-_reapply_status: dict = {"running": False, "total": 0, "done": 0, "ok": 0, "errors": []}
+REAPPLY_TASK_ID = "reapply_approved"
 
 
 @router.post("/mockups/workflow/reapply-approved")
 async def reapply_approved_mockups(request: Optional[ReapplyRequest] = None):
     """Start background reapply of all approved mockups. Returns immediately."""
-    global _reapply_status
-    if _reapply_status["running"]:
+    existing = await db.get_background_task(REAPPLY_TASK_ID)
+    if existing and existing["status"] == "running":
+        progress = existing.get("progress_json") or {}
         return {
             "started": False,
-            "message": f"Already running: {_reapply_status['done']}/{_reapply_status['total']} done",
-            **_reapply_status,
+            "message": f"Already running: {existing.get('done', 0)}/{existing.get('total', 0)} done",
+            "running": True,
+            "total": existing.get("total", 0),
+            "done": existing.get("done", 0),
+            "ok": progress.get("ok", 0),
+            "errors": progress.get("errors", []),
         }
 
     pack_id = request.pack_id if request else None
@@ -518,7 +522,11 @@ async def reapply_approved_mockups(request: Optional[ReapplyRequest] = None):
         return {"started": False, "total": 0, "message": "No approved products with Etsy listings"}
 
     total = len(rows)
-    _reapply_status = {"running": True, "total": total, "done": 0, "ok": 0, "errors": []}
+    await db.create_background_task(REAPPLY_TASK_ID, "reapply_approved", total=total)
+    await db.update_background_task(
+        REAPPLY_TASK_ID, status="running",
+        progress_json={"ok": 0, "errors": []},
+    )
     asyncio.create_task(_background_reapply(pack_id, [dict(r) for r in rows]))
     logger.info(f"reapply: Started background reapply for {total} products (pack_id={pack_id})")
 
@@ -528,12 +536,24 @@ async def reapply_approved_mockups(request: Optional[ReapplyRequest] = None):
 @router.get("/mockups/workflow/reapply-status")
 async def reapply_status():
     """Check progress of background reapply."""
-    return _reapply_status
+    task = await db.get_background_task(REAPPLY_TASK_ID)
+    if not task:
+        return {"running": False, "total": 0, "done": 0, "ok": 0, "errors": []}
+    progress = task.get("progress_json") or {}
+    return {
+        "running": task["status"] == "running",
+        "total": task.get("total", 0),
+        "done": task.get("done", 0),
+        "ok": progress.get("ok", 0),
+        "errors": progress.get("errors", []),
+    }
 
 
 async def _background_reapply(pack_id: Optional[int], rows: list):
     """Background task: reapply to all products."""
-    global _reapply_status
+    ok_count = 0
+    errors_list = []
+    done_count = 0
     try:
         if pack_id:
             pack = await db.get_mockup_pack(pack_id)
@@ -550,9 +570,12 @@ async def _background_reapply(pack_id: Optional[int], rows: list):
         try:
             access_token, shop_id = await ensure_etsy_token()
         except Exception as e:
-            _reapply_status["running"] = False
-            _reapply_status["errors"].append(f"Etsy auth failed: {e}")
+            errors_list.append(f"Etsy auth failed: {e}")
             logger.error(f"reapply: Etsy auth failed: {e}")
+            await db.update_background_task(
+                REAPPLY_TASK_ID, status="completed",
+                progress_json={"ok": ok_count, "errors": errors_list},
+            )
             return
 
         for row in rows:
@@ -592,27 +615,34 @@ async def _background_reapply(pack_id: Optional[int], rows: list):
                         await db.set_product_preferred_mockup(row["printify_product_id"], ur["etsy_cdn_url"])
                         break
 
-                _reapply_status["ok"] += 1
-                logger.info(f"reapply: Product {row['id']} OK ({_reapply_status['done'] + 1}/{_reapply_status['total']})")
+                ok_count += 1
+                logger.info(f"reapply: Product {row['id']} OK ({done_count + 1}/{len(rows)})")
             except Exception as e:
-                _reapply_status["errors"].append(f"Product {row['id']}: {e}")
+                errors_list.append(f"Product {row['id']}: {e}")
                 logger.error(f"reapply: Product {row['id']} FAILED: {e}")
 
-            _reapply_status["done"] += 1
+            done_count += 1
+            await db.update_background_task(
+                REAPPLY_TASK_ID, done=done_count,
+                progress_json={"ok": ok_count, "errors": errors_list},
+            )
 
-        logger.info(f"reapply: Done: {_reapply_status['ok']}/{_reapply_status['total']} products updated")
+        logger.info(f"reapply: Done: {ok_count}/{len(rows)} products updated")
     except Exception as e:
         logger.error(f"reapply: Background task crashed: {e}")
-        _reapply_status["errors"].append(f"Fatal: {e}")
+        errors_list.append(f"Fatal: {e}")
     finally:
-        _reapply_status["running"] = False
+        await db.update_background_task(
+            REAPPLY_TASK_ID, status="completed", done=done_count,
+            progress_json={"ok": ok_count, "errors": errors_list},
+        )
 
 
 # ------------------------------------------------------------------
 # Apply default pack mockups to published products missing mockups
 # ------------------------------------------------------------------
 
-_apply_missing_status = {"running": False, "total": 0, "done": 0, "ok": 0, "errors": []}
+APPLY_MISSING_TASK_ID = "apply_to_published"
 
 
 @router.post("/mockups/apply-to-published")
@@ -623,12 +653,17 @@ async def apply_mockups_to_published():
     1. Products with no image_mockups at all → compose + upload
     2. Products with image_mockups but etsy_image_id IS NULL → upload existing
     """
-    global _apply_missing_status
-    if _apply_missing_status["running"]:
+    existing = await db.get_background_task(APPLY_MISSING_TASK_ID)
+    if existing and existing["status"] == "running":
+        progress = existing.get("progress_json") or {}
         return {
             "started": False,
-            "message": f"Already running: {_apply_missing_status['done']}/{_apply_missing_status['total']} done",
-            **_apply_missing_status,
+            "message": f"Already running: {existing.get('done', 0)}/{existing.get('total', 0)} done",
+            "running": True,
+            "total": existing.get("total", 0),
+            "done": existing.get("done", 0),
+            "ok": progress.get("ok", 0),
+            "errors": progress.get("errors", []),
         }
 
     # Get default pack
@@ -678,7 +713,11 @@ async def apply_mockups_to_published():
         return {"started": False, "total": 0, "message": "All published products already have mockups on Etsy"}
 
     total = len(rows)
-    _apply_missing_status = {"running": True, "total": total, "done": 0, "ok": 0, "errors": []}
+    await db.create_background_task(APPLY_MISSING_TASK_ID, "apply_to_published", total=total)
+    await db.update_background_task(
+        APPLY_MISSING_TASK_ID, status="running",
+        progress_json={"ok": 0, "errors": []},
+    )
     asyncio.create_task(_background_apply_missing(pack_id, rows))
     compose_count = len(no_mockups)
     upload_count = len(not_uploaded)
@@ -694,12 +733,24 @@ async def apply_mockups_to_published():
 @router.get("/mockups/apply-to-published/status")
 async def apply_missing_status():
     """Check progress of apply-to-published."""
-    return _apply_missing_status
+    task = await db.get_background_task(APPLY_MISSING_TASK_ID)
+    if not task:
+        return {"running": False, "total": 0, "done": 0, "ok": 0, "errors": []}
+    progress = task.get("progress_json") or {}
+    return {
+        "running": task["status"] == "running",
+        "total": task.get("total", 0),
+        "done": task.get("done", 0),
+        "ok": progress.get("ok", 0),
+        "errors": progress.get("errors", []),
+    }
 
 
 async def _background_apply_missing(pack_id: int, rows: list):
     """Background: compose + upload default pack mockups for products missing them."""
-    global _apply_missing_status
+    ok_count = 0
+    errors_list = []
+    done_count = 0
     try:
         pack = await db.get_mockup_pack(pack_id)
         templates = await db.get_pack_templates(pack_id)
@@ -712,9 +763,12 @@ async def _background_apply_missing(pack_id: int, rows: list):
         try:
             access_token, shop_id = await ensure_etsy_token()
         except Exception as e:
-            _apply_missing_status["running"] = False
-            _apply_missing_status["errors"].append(f"Etsy auth failed: {e}")
+            errors_list.append(f"Etsy auth failed: {e}")
             logger.error(f"apply-missing: Etsy auth failed: {e}")
+            await db.update_background_task(
+                APPLY_MISSING_TASK_ID, status="completed",
+                progress_json={"ok": ok_count, "errors": errors_list},
+            )
             return
 
         for row in rows:
@@ -752,20 +806,27 @@ async def _background_apply_missing(pack_id: int, rows: list):
                         await db.set_product_preferred_mockup(row["printify_product_id"], ur["etsy_cdn_url"])
                         break
 
-                _apply_missing_status["ok"] += 1
-                logger.info(f"apply-missing: Product {row['id']} OK ({_apply_missing_status['done'] + 1}/{_apply_missing_status['total']})")
+                ok_count += 1
+                logger.info(f"apply-missing: Product {row['id']} OK ({done_count + 1}/{len(rows)})")
             except Exception as e:
-                _apply_missing_status["errors"].append(f"Product {row['id']}: {e}")
+                errors_list.append(f"Product {row['id']}: {e}")
                 logger.error(f"apply-missing: Product {row['id']} FAILED: {e}")
 
-            _apply_missing_status["done"] += 1
+            done_count += 1
+            await db.update_background_task(
+                APPLY_MISSING_TASK_ID, done=done_count,
+                progress_json={"ok": ok_count, "errors": errors_list},
+            )
 
-        logger.info(f"apply-missing: Done: {_apply_missing_status['ok']}/{_apply_missing_status['total']} products updated")
+        logger.info(f"apply-missing: Done: {ok_count}/{len(rows)} products updated")
     except Exception as e:
         logger.error(f"apply-missing: Background task crashed: {e}")
-        _apply_missing_status["errors"].append(f"Fatal: {e}")
+        errors_list.append(f"Fatal: {e}")
     finally:
-        _apply_missing_status["running"] = False
+        await db.update_background_task(
+            APPLY_MISSING_TASK_ID, status="completed", done=done_count,
+            progress_json={"ok": ok_count, "errors": errors_list},
+        )
 
 
 # --- Reapply Single Product ---

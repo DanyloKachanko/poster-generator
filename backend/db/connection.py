@@ -279,6 +279,20 @@ CREATE INDEX IF NOT EXISTS idx_used_presets_product ON used_presets(printify_pro
 CREATE INDEX IF NOT EXISTS idx_competitor_snapshots_competitor ON competitor_snapshots(competitor_id);
 CREATE INDEX IF NOT EXISTS idx_mockup_templates_active ON mockup_templates(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_strategy_items_plan_status ON strategy_items(plan_id, status);
+
+CREATE TABLE IF NOT EXISTS background_tasks (
+    task_id TEXT PRIMARY KEY,
+    task_type TEXT NOT NULL,
+    status TEXT DEFAULT 'running',
+    total INTEGER DEFAULT 0,
+    done INTEGER DEFAULT 0,
+    progress_json TEXT DEFAULT '{}',
+    error TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_type ON background_tasks(task_type);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status);
 """
 
 
