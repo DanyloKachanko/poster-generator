@@ -498,7 +498,7 @@ class PublishScheduler:
                                 mockup_bytes = resp.content
                         mockup_entries.append((m["id"], mockup_bytes))
 
-                    from routes.mockups import _upload_multi_images_to_etsy
+                    from routes.mockup_utils import _upload_multi_images_to_etsy
                     upload_results = await _upload_multi_images_to_etsy(
                         access_token, shop_id, etsy_listing_id,
                         poster_url, mockup_entries,
@@ -538,7 +538,7 @@ class PublishScheduler:
                             if isinstance(t.get("corners"), str):
                                 t["corners"] = json_mod.loads(t["corners"])
 
-                        from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
+                        from routes.mockup_utils import _compose_all_templates, _upload_multi_images_to_etsy
                         composed = await _compose_all_templates(poster_url, active_templates)
 
                         mockup_entries = []
@@ -784,7 +784,7 @@ class PublishScheduler:
             return
         access_token, shop_id = token_data
 
-        from routes.mockups import _compose_all_templates, _upload_multi_images_to_etsy
+        from routes.mockup_utils import _compose_all_templates, _upload_multi_images_to_etsy
 
         for row in needs_mockups:
             pid = row["printify_product_id"]

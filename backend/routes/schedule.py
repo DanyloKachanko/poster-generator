@@ -41,7 +41,7 @@ async def schedule_add(request: ScheduleAddRequest):
                         pack_id = int(default_pack_id) if default_pack_id else 2  # fallback to pack 2
 
                         # Import mockup approval logic
-                        from routes.mockups import approve_poster, ApproveRequest
+                        from routes.mockup_workflow import approve_poster, ApproveRequest
 
                         # Approve with default pack (will compose and save mockups)
                         await approve_poster(source_image_id, ApproveRequest(pack_id=pack_id))
@@ -142,7 +142,7 @@ async def schedule_add_batch(request: ScheduleBatchRequest):
                             try:
                                 default_pack_id = await db.get_setting("default_pack_id")
                                 pack_id = int(default_pack_id) if default_pack_id else 2
-                                from routes.mockups import approve_poster, ApproveRequest
+                                from routes.mockup_workflow import approve_poster, ApproveRequest
                                 await approve_poster(source_image_id, ApproveRequest(pack_id=pack_id))
                                 logger.info("Auto-approved mockups for product %s before scheduling", pid)
                             except Exception as e:

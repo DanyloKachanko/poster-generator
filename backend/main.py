@@ -22,7 +22,9 @@ from routes.batch import router as batch_router
 from routes.pipeline import router as pipeline_router
 from routes.schedule import router as schedule_router
 from routes.calendar import router as calendar_router
-from routes.mockups import router as mockups_router
+from routes.mockup_templates import router as mockup_templates_router
+from routes.mockup_compose import router as mockup_compose_router
+from routes.mockup_workflow import router as mockup_workflow_router
 from routes.competitors import router as competitors_router
 from routes.products import router as products_router
 from routes.custom_presets import router as custom_presets_router
@@ -30,6 +32,7 @@ from routes.dovshop import router as dovshop_router
 from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 from routes.strategy import router as strategy_router
+from routes.seo_routes import router as seo_router
 
 # Paths that don't require auth
 _PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
@@ -108,7 +111,9 @@ app.include_router(batch_router)
 app.include_router(pipeline_router)
 app.include_router(schedule_router)
 app.include_router(calendar_router)
-app.include_router(mockups_router)
+app.include_router(mockup_templates_router)
+app.include_router(mockup_compose_router)
+app.include_router(mockup_workflow_router)
 app.include_router(competitors_router)
 app.include_router(products_router)
 app.include_router(custom_presets_router)
@@ -116,3 +121,4 @@ app.include_router(dovshop_router)
 app.include_router(sync_router)
 app.include_router(sync_ui_router)
 app.include_router(strategy_router)
+app.include_router(seo_router)
