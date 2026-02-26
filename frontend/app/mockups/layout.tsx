@@ -1,8 +1,7 @@
 import ModuleLayout from '@/components/ModuleLayout';
 
 const tabs = [
-  { href: '/mockups', label: 'Gallery' },
-  { href: '/mockups/templates', label: 'Templates' },
+  { href: '/mockups', label: 'Templates' },
   { href: '/mockups/workflow', label: 'Workflow' },
 ];
 

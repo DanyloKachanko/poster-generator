@@ -28,8 +28,6 @@ const nextConfig = {
       // Products module
       { source: '/seo', destination: '/products/seo', permanent: false },
       { source: '/sync-etsy', destination: '/products/sync', permanent: false },
-      // Mockups module
-      { source: '/mockups/generate', destination: '/mockups/templates', permanent: false },
       // Publish module
       { source: '/schedule', destination: '/publish', permanent: false },
       { source: '/calendar', destination: '/publish/calendar', permanent: false },
