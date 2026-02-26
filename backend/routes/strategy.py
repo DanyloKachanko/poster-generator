@@ -363,8 +363,6 @@ async def get_execution_status(task_id: str):
 
 async def _execute_plan_items(task_id: str, plan_id: int, items: list):
     """Background worker: execute each plan item sequentially."""
-    import time as time_mod
-
     task = _execution_tasks[task_id]
 
     for idx, item in enumerate(items):
@@ -374,176 +372,214 @@ async def _execute_plan_items(task_id: str, plan_id: int, items: list):
         task["current_title"] = item.get("title_hint", f"Item {item_id}")
 
         try:
-            pool = await db.get_pool()
-
-            # a. Update item status to 'generating'
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE strategy_items SET status = 'generating' WHERE id = $1",
-                    item_id,
-                )
-
-            # b. Generate image via Leonardo
-            prompt = item["prompt"]
-            model_id = item.get("model_id", "phoenix")
-            size_id = item.get("size_id", "poster_4_5")
-
-            model_info = MODELS.get(model_id, MODELS["phoenix"])
-            size_info = SIZES.get(size_id, SIZES["poster_4_5"])
-
-            gen_prompt = prompt + COMPOSITION_SUFFIX
-            gen_width = size_info["width"]
-            gen_height = size_info["height"]
-            if gen_width > 1536 or gen_height > 1536:
-                scale = 1536 / max(gen_width, gen_height)
-                gen_width = int(gen_width * scale) // 8 * 8
-                gen_height = int(gen_height * scale) // 8 * 8
-
-            gen_result = await leonardo.create_generation(
-                prompt=gen_prompt,
-                model_id=model_info["id"],
-                num_images=1,
-                width=gen_width,
-                height=gen_height,
-            )
-            generation_id = gen_result["generation_id"]
-
-            # Save generation to DB
-            await db.save_generation(
-                generation_id=generation_id,
-                prompt=prompt,
-                negative_prompt="",
-                model_id=model_info["id"],
-                model_name=model_info["name"],
-                style=item.get("style", ""),
-                preset=item.get("preset", ""),
-                width=size_info["width"],
-                height=size_info["height"],
-                num_images=1,
-            )
-
-            # c. Poll for completion (every 5s, up to 60 times = 5 min)
-            completed = None
-            for _ in range(60):
-                result = await leonardo.get_generation(generation_id)
-                if result["status"] == "COMPLETE":
-                    completed = result
-                    break
-                elif result["status"] == "FAILED":
-                    raise Exception("Image generation failed")
-                await asyncio.sleep(5)
-
-            if not completed or not completed.get("images"):
-                raise Exception("Image generation timed out or returned no images")
-
-            await db.update_generation_status(
-                generation_id, "COMPLETE", completed.get("api_credit_cost", 0)
-            )
-            await db.save_generated_images(generation_id, completed["images"])
-
-            # d. Update item status to 'generated'
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE strategy_items SET status = 'generated', generation_id = $1 WHERE id = $2",
-                    generation_id, item_id,
-                )
-
-            image_url = completed["images"][0]["url"]
-            source_image = await db.get_image_by_url(image_url)
-            source_image_id = source_image["id"] if source_image else None
-
-            # e. Generate listing via Claude
-            style = item.get("style", "")
-            preset = item.get("preset", "")
-            title_hint = item.get("title_hint", "")
-
-            listing = await listing_gen.generate_listing(
-                style=style,
-                preset=preset,
-                description=prompt,
-            )
-
-            title = title_hint if title_hint else listing.title
-            tags = listing.tags
-
-            # f. Get prices, prepare multi-design images, create variants, clean description
-            prices = get_all_prices("standard")
-            filename_prefix = f"strategy_{item_id}_{int(time_mod.time())}"
-            design_groups, enabled_sizes, dpi_analysis = await prepare_multidesign_images(
-                image_url=image_url,
-                filename_prefix=filename_prefix,
-            )
-
-            clean_desc = clean_description(listing.description, list(enabled_sizes))
-            variants = create_variants_from_prices(prices, enabled_sizes=enabled_sizes)
-
-            # g. Create product via Printify
-            product = await printify.create_product_multidesign(
-                title=title,
-                description=clean_desc,
-                tags=tags,
-                design_groups=design_groups,
-                variants=variants,
-            )
-
-            # h. Save to DB
-            etsy_metadata = {
-                "materials": ["Archival paper", "Ink"],
-                "who_made": "someone_else",
-                "when_made": "2020_2025",
-                "is_supply": False,
-            }
-
-            saved_product = await db.save_product(
-                printify_product_id=product.id,
-                title=title,
-                description=clean_desc,
-                tags=tags,
-                image_url=image_url,
-                pricing_strategy="standard",
-                enabled_sizes=sorted(enabled_sizes),
-                status="scheduled",
-                etsy_metadata=etsy_metadata,
-                source_image_id=source_image_id,
-            )
-
-            if source_image_id:
-                await db.link_image_to_product(source_image_id, saved_product["id"])
-
-            # i. Schedule for publishing
-            await publish_scheduler.add_to_queue(
-                printify_product_id=product.id,
-                title=title,
-                etsy_metadata=etsy_metadata,
-            )
-
-            # j. Update item status to 'product_created'
-            async with pool.acquire() as conn:
-                await conn.execute(
-                    "UPDATE strategy_items SET status = 'product_created', printify_product_id = $1 WHERE id = $2",
-                    product.id, item_id,
-                )
-
+            await _execute_single_plan_item(item)
             task["completed"] += 1
-
         except Exception as e:
-            # k. On error: reset item to 'planned', add to errors list, continue
-            try:
-                pool = await db.get_pool()
-                async with pool.acquire() as conn:
-                    await conn.execute(
-                        "UPDATE strategy_items SET status = 'planned' WHERE id = $1",
-                        item_id,
-                    )
-            except Exception:
-                pass
-
+            await _reset_item_on_error(item_id)
             task["errors"].append({
                 "item_id": item_id,
                 "error": str(e),
             })
 
-    # After all items: update plan status to 'completed'
+    await _finalize_plan(plan_id)
+    task["status"] = "completed"
+    task["current_item"] = None
+    task["current_title"] = None
+
+
+async def _execute_single_plan_item(item: dict):
+    """Execute a single plan item: generate image, create listing, build product."""
+    item_id = item["id"]
+    pool = await db.get_pool()
+
+    # Mark item as generating
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE strategy_items SET status = 'generating' WHERE id = $1",
+            item_id,
+        )
+
+    # Generate image and poll for completion
+    generation_id, completed = await _generate_image(item)
+
+    # Update item with generation result
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE strategy_items SET status = 'generated', generation_id = $1 WHERE id = $2",
+            generation_id, item_id,
+        )
+
+    image_url = completed["images"][0]["url"]
+    source_image = await db.get_image_by_url(image_url)
+    source_image_id = source_image["id"] if source_image else None
+
+    # Create listing, product, and schedule for publishing
+    product = await _create_product(item, image_url, source_image_id)
+
+    # Mark item as complete
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE strategy_items SET status = 'product_created', printify_product_id = $1 WHERE id = $2",
+            product.id, item_id,
+        )
+
+
+async def _generate_image(item: dict) -> tuple:
+    """Generate an image via Leonardo, poll for completion, and save to DB.
+
+    Returns (generation_id, completed_result).
+    """
+    prompt = item["prompt"]
+    model_id = item.get("model_id", "phoenix")
+    size_id = item.get("size_id", "poster_4_5")
+
+    model_info = MODELS.get(model_id, MODELS["phoenix"])
+    size_info = SIZES.get(size_id, SIZES["poster_4_5"])
+
+    gen_prompt = prompt + COMPOSITION_SUFFIX
+    gen_width = size_info["width"]
+    gen_height = size_info["height"]
+    if gen_width > 1536 or gen_height > 1536:
+        scale = 1536 / max(gen_width, gen_height)
+        gen_width = int(gen_width * scale) // 8 * 8
+        gen_height = int(gen_height * scale) // 8 * 8
+
+    gen_result = await leonardo.create_generation(
+        prompt=gen_prompt,
+        model_id=model_info["id"],
+        num_images=1,
+        width=gen_width,
+        height=gen_height,
+    )
+    generation_id = gen_result["generation_id"]
+
+    await db.save_generation(
+        generation_id=generation_id,
+        prompt=prompt,
+        negative_prompt="",
+        model_id=model_info["id"],
+        model_name=model_info["name"],
+        style=item.get("style", ""),
+        preset=item.get("preset", ""),
+        width=size_info["width"],
+        height=size_info["height"],
+        num_images=1,
+    )
+
+    # Poll for completion (every 5s, up to 60 times = 5 min)
+    completed = None
+    for _ in range(60):
+        result = await leonardo.get_generation(generation_id)
+        if result["status"] == "COMPLETE":
+            completed = result
+            break
+        elif result["status"] == "FAILED":
+            raise Exception("Image generation failed")
+        await asyncio.sleep(5)
+
+    if not completed or not completed.get("images"):
+        raise Exception("Image generation timed out or returned no images")
+
+    await db.update_generation_status(
+        generation_id, "COMPLETE", completed.get("api_credit_cost", 0)
+    )
+    await db.save_generated_images(generation_id, completed["images"])
+
+    return generation_id, completed
+
+
+async def _create_product(item: dict, image_url: str, source_image_id: int | None):
+    """Generate listing, build Printify product, save to DB, and schedule publishing.
+
+    Returns the Printify product object.
+    """
+    import time as time_mod
+
+    item_id = item["id"]
+    prompt = item["prompt"]
+    style = item.get("style", "")
+    preset = item.get("preset", "")
+    title_hint = item.get("title_hint", "")
+
+    # Generate listing via Claude
+    listing = await listing_gen.generate_listing(
+        style=style,
+        preset=preset,
+        description=prompt,
+    )
+
+    title = title_hint if title_hint else listing.title
+    tags = listing.tags
+
+    # Prepare multi-design images and variants
+    prices = get_all_prices("standard")
+    filename_prefix = f"strategy_{item_id}_{int(time_mod.time())}"
+    design_groups, enabled_sizes, dpi_analysis = await prepare_multidesign_images(
+        image_url=image_url,
+        filename_prefix=filename_prefix,
+    )
+
+    clean_desc = clean_description(listing.description, list(enabled_sizes))
+    variants = create_variants_from_prices(prices, enabled_sizes=enabled_sizes)
+
+    # Create product via Printify
+    product = await printify.create_product_multidesign(
+        title=title,
+        description=clean_desc,
+        tags=tags,
+        design_groups=design_groups,
+        variants=variants,
+    )
+
+    # Save to DB
+    etsy_metadata = {
+        "materials": ["Archival paper", "Ink"],
+        "who_made": "someone_else",
+        "when_made": "2020_2025",
+        "is_supply": False,
+    }
+
+    saved_product = await db.save_product(
+        printify_product_id=product.id,
+        title=title,
+        description=clean_desc,
+        tags=tags,
+        image_url=image_url,
+        pricing_strategy="standard",
+        enabled_sizes=sorted(enabled_sizes),
+        status="scheduled",
+        etsy_metadata=etsy_metadata,
+        source_image_id=source_image_id,
+    )
+
+    if source_image_id:
+        await db.link_image_to_product(source_image_id, saved_product["id"])
+
+    # Schedule for publishing
+    await publish_scheduler.add_to_queue(
+        printify_product_id=product.id,
+        title=title,
+        etsy_metadata=etsy_metadata,
+    )
+
+    return product
+
+
+async def _reset_item_on_error(item_id: int):
+    """Reset a strategy item back to 'planned' status after an error."""
+    try:
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE strategy_items SET status = 'planned' WHERE id = $1",
+                item_id,
+            )
+    except Exception:
+        pass
+
+
+async def _finalize_plan(plan_id: int):
+    """Mark a strategy plan as completed."""
     try:
         pool = await db.get_pool()
         async with pool.acquire() as conn:
@@ -553,10 +589,6 @@ async def _execute_plan_items(task_id: str, plan_id: int, items: list):
             )
     except Exception:
         pass
-
-    task["status"] = "completed"
-    task["current_item"] = None
-    task["current_title"] = None
 
 
 # ── Coverage Metric ─────────────────────────────────────────────────

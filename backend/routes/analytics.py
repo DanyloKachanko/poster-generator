@@ -101,6 +101,150 @@ class AnalyticsEntryRequest(BaseModel):
     notes: Optional[str] = None
 
 
+def _get_product_thumbnail(product: dict) -> Optional[str]:
+    """Extract the thumbnail URL from a Printify product's images."""
+    for img in product.get("images", []):
+        if img.get("is_default"):
+            return img.get("src")
+    if product.get("images"):
+        return product["images"][0].get("src")
+    return None
+
+
+def _get_price_range(product: dict) -> tuple[int, int]:
+    """Return (min_price, max_price) from a product's enabled variants."""
+    enabled_variants = [v for v in product.get("variants", []) if v.get("is_enabled")]
+    prices = [v.get("price", 0) for v in enabled_variants]
+    return (min(prices) if prices else 0, max(prices) if prices else 0)
+
+
+def _get_etsy_info(product: dict, active_etsy_ids: set) -> tuple[str, Optional[str]]:
+    """Determine Etsy status and URL for a product.
+
+    Returns (status, etsy_url).
+    """
+    external = product.get("external")
+    etsy_url = None
+    etsy_listing_id = str(external["id"]) if external and external.get("id") else None
+    if external and external.get("handle"):
+        handle = external["handle"]
+        etsy_url = handle if handle.startswith("http") else f"https://{handle}"
+
+    if active_etsy_ids:
+        if etsy_listing_id and etsy_listing_id in active_etsy_ids:
+            status = "on_etsy"
+        elif etsy_listing_id:
+            status = "deleted"
+        else:
+            status = "draft"
+    else:
+        status = "on_etsy" if etsy_listing_id else "draft"
+
+    return status, etsy_url
+
+
+def _merge_product_with_analytics(product: dict, analytics_entry: dict, active_etsy_ids: set) -> dict:
+    """Merge a Printify product with its analytics data into a single record."""
+    pid = product["id"]
+    thumbnail = _get_product_thumbnail(product)
+    min_price, max_price = _get_price_range(product)
+    status, etsy_url = _get_etsy_info(product, active_etsy_ids)
+
+    return {
+        "printify_product_id": pid,
+        "title": product.get("title", "Untitled"),
+        "thumbnail": thumbnail,
+        "status": status,
+        "min_price": min_price,
+        "max_price": max_price,
+        "etsy_url": etsy_url,
+        "total_views": analytics_entry.get("total_views", 0),
+        "total_favorites": analytics_entry.get("total_favorites", 0),
+        "total_orders": analytics_entry.get("total_orders", 0),
+        "total_revenue_cents": analytics_entry.get("total_revenue_cents", 0),
+        "latest_date": analytics_entry.get("latest_date"),
+    }
+
+
+async def _build_orphaned_entry(pid: str, analytics_entry: dict) -> dict:
+    """Build a merged record for a product that no longer exists on Printify."""
+    local = await db.get_product_by_printify_id(pid)
+    title = None
+    thumbnail = None
+    if local:
+        title = local.get("title")
+        thumbnail = local.get("image_url")
+    if not title:
+        pool = await db.get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT title, image_url FROM scheduled_products WHERE printify_product_id = $1",
+                pid,
+            )
+            if row:
+                title = row["title"]
+                thumbnail = thumbnail or row["image_url"]
+    return {
+        "printify_product_id": pid,
+        "title": title or f"Deleted ({pid[-8:]})",
+        "thumbnail": thumbnail,
+        "status": "deleted",
+        "min_price": 0,
+        "max_price": 0,
+        "etsy_url": None,
+        "total_views": analytics_entry.get("total_views", 0),
+        "total_favorites": analytics_entry.get("total_favorites", 0),
+        "total_orders": analytics_entry.get("total_orders", 0),
+        "total_revenue_cents": analytics_entry.get("total_revenue_cents", 0),
+        "latest_date": analytics_entry.get("latest_date"),
+    }
+
+
+def _compute_totals(merged: list[dict]) -> dict:
+    """Compute summary totals from the merged product list."""
+    total_views = sum(p["total_views"] for p in merged)
+    total_favorites = sum(p["total_favorites"] for p in merged)
+    total_orders = sum(p["total_orders"] for p in merged)
+    total_revenue = sum(p["total_revenue_cents"] for p in merged)
+
+    live_products = [p for p in merged if p["status"] == "on_etsy"]
+    deleted_products = [p for p in merged if p["status"] == "deleted"]
+    draft_products_list = [p for p in merged if p["status"] == "draft"]
+    live_with_views = [p for p in live_products if p["total_views"] > 0]
+    live_no_views = [p for p in live_products if p["total_views"] == 0]
+
+    best = max(merged, key=lambda p: p["total_views"]) if merged else None
+
+    return {
+        "total_views": total_views,
+        "total_favorites": total_favorites,
+        "total_orders": total_orders,
+        "total_revenue_cents": total_revenue,
+        "total_products": len(merged),
+        "live_products": len(live_products),
+        "draft_products": len(draft_products_list),
+        "deleted_products": len(deleted_products),
+        "products_with_views": len(live_with_views),
+        "products_no_views": len(live_no_views),
+        "avg_views": round(total_views / len(live_products), 1) if live_products else 0,
+        "avg_favorites": round(total_favorites / len(live_products), 1) if live_products else 0,
+        "fav_rate": round((total_favorites / total_views * 100), 1) if total_views > 0 else 0,
+        "best_performer": best["title"] if best and best["total_views"] > 0 else None,
+        "best_performer_views": best["total_views"] if best and best["total_views"] > 0 else 0,
+    }
+
+
+async def _fetch_printify_products() -> list[dict]:
+    """Fetch products from Printify, returning an empty list on failure."""
+    if not printify.is_configured:
+        return []
+    try:
+        result = await printify.list_products(page=1, limit=50)
+        return result.get("data", [])
+    except Exception:
+        return []
+
+
 @router.get("/analytics")
 async def get_analytics():
     """
@@ -108,147 +252,25 @@ async def get_analytics():
     Merges Printify product data with local SQLite analytics.
     """
     try:
-        # Get analytics summary from SQLite
         analytics = await db.get_analytics_summary()
         analytics_map = {a["printify_product_id"]: a for a in analytics}
 
-        # Get products from Printify
-        products = []
-        if printify.is_configured:
-            try:
-                result = await printify.list_products(page=1, limit=50)
-                products = result.get("data", [])
-            except Exception:
-                pass
-
-        # Fetch active Etsy listing IDs for accurate status
+        products = await _fetch_printify_products()
         active_etsy_ids = await _get_active_etsy_listing_ids()
 
-        # Merge: build list with product info + analytics
+        # Merge Printify products with their analytics
         merged = []
         for product in products:
-            pid = product["id"]
-            a = analytics_map.pop(pid, {})
+            a = analytics_map.pop(product["id"], {})
+            merged.append(_merge_product_with_analytics(product, a, active_etsy_ids))
 
-            # Get thumbnail from images
-            thumbnail = None
-            for img in product.get("images", []):
-                if img.get("is_default"):
-                    thumbnail = img.get("src")
-                    break
-            if not thumbnail and product.get("images"):
-                thumbnail = product["images"][0].get("src")
-
-            # Get price range from enabled variants
-            enabled_variants = [v for v in product.get("variants", []) if v.get("is_enabled")]
-            prices = [v.get("price", 0) for v in enabled_variants]
-            min_price = min(prices) if prices else 0
-            max_price = max(prices) if prices else 0
-
-            # Etsy status — cross-reference with active listings
-            external = product.get("external")
-            etsy_url = None
-            etsy_listing_id = str(external["id"]) if external and external.get("id") else None
-            if external and external.get("handle"):
-                handle = external["handle"]
-                etsy_url = handle if handle.startswith("http") else f"https://{handle}"
-
-            if active_etsy_ids:
-                if etsy_listing_id and etsy_listing_id in active_etsy_ids:
-                    status = "on_etsy"
-                elif etsy_listing_id:
-                    status = "deleted"  # was published but deleted on Etsy
-                else:
-                    status = "draft"
-            else:
-                status = "on_etsy" if etsy_listing_id else "draft"
-
-            merged.append({
-                "printify_product_id": pid,
-                "title": product.get("title", "Untitled"),
-                "thumbnail": thumbnail,
-                "status": status,
-                "min_price": min_price,
-                "max_price": max_price,
-                "etsy_url": etsy_url,
-                "total_views": a.get("total_views", 0),
-                "total_favorites": a.get("total_favorites", 0),
-                "total_orders": a.get("total_orders", 0),
-                "total_revenue_cents": a.get("total_revenue_cents", 0),
-                "latest_date": a.get("latest_date"),
-            })
-
-        # Include any analytics entries for products no longer on Printify
+        # Include orphaned analytics entries (products no longer on Printify)
         for pid, a in analytics_map.items():
-            # Try to look up product info from local DB or scheduled_products
-            local = await db.get_product_by_printify_id(pid)
-            title = None
-            thumbnail = None
-            if local:
-                title = local.get("title")
-                thumbnail = local.get("image_url")
-            if not title:
-                # Try scheduled_products as fallback
-                pool = await db.get_pool()
-                async with pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT title, image_url FROM scheduled_products WHERE printify_product_id = $1",
-                        pid,
-                    )
-                    if row:
-                        title = row["title"]
-                        thumbnail = thumbnail or row["image_url"]
-            merged.append({
-                "printify_product_id": pid,
-                "title": title or f"Deleted ({pid[-8:]})",
-                "thumbnail": thumbnail,
-                "status": "deleted",
-                "min_price": 0,
-                "max_price": 0,
-                "etsy_url": None,
-                "total_views": a.get("total_views", 0),
-                "total_favorites": a.get("total_favorites", 0),
-                "total_orders": a.get("total_orders", 0),
-                "total_revenue_cents": a.get("total_revenue_cents", 0),
-                "latest_date": a.get("latest_date"),
-            })
-
-        # Summary totals
-        total_views = sum(p["total_views"] for p in merged)
-        total_favorites = sum(p["total_favorites"] for p in merged)
-        total_orders = sum(p["total_orders"] for p in merged)
-        total_revenue = sum(p["total_revenue_cents"] for p in merged)
-
-        live_products = [p for p in merged if p["status"] == "on_etsy"]
-        deleted_products = [p for p in merged if p["status"] == "deleted"]
-        draft_products_list = [p for p in merged if p["status"] == "draft"]
-        live_with_views = [p for p in live_products if p["total_views"] > 0]
-        live_no_views = [p for p in live_products if p["total_views"] == 0]
-
-        # Best performer by views
-        best = max(merged, key=lambda p: p["total_views"]) if merged else None
-
-        totals = {
-            "total_views": total_views,
-            "total_favorites": total_favorites,
-            "total_orders": total_orders,
-            "total_revenue_cents": total_revenue,
-            "total_products": len(merged),
-            "live_products": len(live_products),
-            "draft_products": len(draft_products_list),
-            "deleted_products": len(deleted_products),
-            "products_with_views": len(live_with_views),
-            "products_no_views": len(live_no_views),
-            "avg_views": round(total_views / len(live_products), 1) if live_products else 0,
-            "avg_favorites": round(total_favorites / len(live_products), 1) if live_products else 0,
-            "fav_rate": round((total_favorites / total_views * 100), 1) if total_views > 0 else 0,
-            "best_performer": best["title"] if best and best["total_views"] > 0 else None,
-            "best_performer_views": best["total_views"] if best and best["total_views"] > 0 else 0,
-        }
+            merged.append(await _build_orphaned_entry(pid, a))
 
         return {
             "products": merged,
-            "totals": totals,
+            "totals": _compute_totals(merged),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

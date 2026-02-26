@@ -508,6 +508,139 @@ async def fix_product_pricing(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _extract_source_url(product: dict) -> str:
+    """Extract the original design image URL from a product's print_areas."""
+    for pa in product.get("print_areas", []):
+        for ph in pa.get("placeholders", []):
+            for img in ph.get("images", []):
+                if img.get("src"):
+                    return img["src"]
+    raise HTTPException(status_code=400, detail="No design image found in print_areas")
+
+
+async def _download_image(url: str) -> bytes:
+    """Download an image from a URL and return raw bytes."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, timeout=60.0)
+        resp.raise_for_status()
+        return resp.content
+
+
+async def _create_per_size_design_groups(
+    sellable: list,
+    analysis: dict,
+    source_bytes: bytes,
+    filename_prefix: str,
+) -> tuple[list, set, set]:
+    """Crop, resize, and upload one image per sellable size.
+
+    Returns (design_groups, enabled_sizes, assigned_variant_ids).
+    """
+    design_groups = []
+    enabled_sizes = set()
+    assigned_variant_ids = set()
+
+    for size_key in sellable:
+        sa = analysis[size_key]
+        target_ratio = sa.target_width / sa.target_height
+        try:
+            cropped = fit_image_to_ratio(source_bytes, target_ratio)
+            resized = upscale_service.upscale_to_target(
+                cropped, sa.target_width, sa.target_height,
+            )
+            upload = await printify.upload_image_base64(
+                image_bytes=resized,
+                filename=f"{filename_prefix}_{size_key}.jpg",
+            )
+            design_groups.append(
+                DesignGroup(image_id=upload["id"], variant_ids=[sa.variant_id])
+            )
+            enabled_sizes.add(size_key)
+            assigned_variant_ids.add(sa.variant_id)
+        except Exception:
+            pass  # Skip this size on failure
+
+    return design_groups, enabled_sizes, assigned_variant_ids
+
+
+async def _assign_remaining_variants(
+    all_variant_ids: list,
+    assigned_variant_ids: set,
+    design_groups: list,
+    source_url: str,
+    filename_prefix: str,
+) -> None:
+    """Upload the original image and assign it to any unassigned variant IDs."""
+    remaining_vids = [
+        vid for vid in all_variant_ids if vid not in assigned_variant_ids
+    ]
+    if remaining_vids:
+        original_upload = await printify.upload_image(
+            image_url=source_url,
+            filename=f"{filename_prefix}_original.png",
+        )
+        design_groups.append(
+            DesignGroup(image_id=original_upload["id"], variant_ids=remaining_vids)
+        )
+
+
+def _build_print_areas(design_groups: list) -> list:
+    """Build the print_areas payload with per-size scale overrides."""
+    vid_to_size = {vid: sk for sk, vid in PrintifyAPI.SIZE_VARIANT_IDS.items()}
+    print_areas = []
+    for group in design_groups:
+        size_key = vid_to_size.get(group.variant_ids[0]) if len(group.variant_ids) == 1 else None
+        scale = PRINTIFY_SCALE.get(size_key, PRINTIFY_SCALE_DEFAULT) if size_key else PRINTIFY_SCALE_DEFAULT
+        print_areas.append({
+            "variant_ids": group.variant_ids,
+            "placeholders": [{
+                "position": "front",
+                "images": [{
+                    "id": group.image_id,
+                    "x": 0.5,
+                    "y": 0.5,
+                    "scale": scale,
+                    "angle": 0,
+                }],
+            }],
+        })
+    return print_areas
+
+
+def _build_updated_variants(product: dict, enabled_sizes: set) -> list:
+    """Build the variants list with correct enabled state per size."""
+    updated_variants = []
+    for v in product.get("variants", []):
+        vid = v["id"]
+        size_key = None
+        for sk, sv_id in PrintifyAPI.SIZE_VARIANT_IDS.items():
+            if sv_id == vid:
+                size_key = sk
+                break
+        if size_key:
+            is_enabled = size_key in enabled_sizes
+        else:
+            is_enabled = v.get("is_enabled", False)
+        updated_variants.append({
+            "id": vid,
+            "price": v["price"],
+            "is_enabled": is_enabled,
+        })
+    return updated_variants
+
+
+async def _republish_if_published(product: dict, product_id: str) -> bool:
+    """Re-publish a product to Etsy if it was already published."""
+    external = product.get("external")
+    if external and external.get("id"):
+        try:
+            await printify.publish_product(product_id)
+            return True
+        except Exception:
+            pass
+    return False
+
+
 @router.post("/printify/upgrade-product/{product_id}")
 async def upgrade_product_with_upscale(product_id: str):
     """Upgrade an existing product with per-size cropped + upscaled images.
@@ -520,33 +653,12 @@ async def upgrade_product_with_upscale(product_id: str):
         raise HTTPException(status_code=400, detail="Printify not configured")
 
     try:
-        # Get current product
         product = await printify.get_product(product_id)
         title = product.get("title", "Untitled")
 
-        # Find the original design image from print_areas (not mockups)
-        source_url = None
-        for pa in product.get("print_areas", []):
-            for ph in pa.get("placeholders", []):
-                for img in ph.get("images", []):
-                    if img.get("src"):
-                        source_url = img["src"]
-                        break
-                if source_url:
-                    break
-            if source_url:
-                break
+        source_url = _extract_source_url(product)
+        source_bytes = await _download_image(source_url)
 
-        if not source_url:
-            raise HTTPException(status_code=400, detail="No design image found in print_areas")
-
-        # Download source image
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(source_url, timeout=60.0)
-            resp.raise_for_status()
-            source_bytes = resp.content
-
-        # Get dimensions and analyze DPI
         img = Image.open(io.BytesIO(source_bytes))
         src_w, src_h = img.size
         analysis = analyze_sizes(src_w, src_h)
@@ -560,106 +672,29 @@ async def upgrade_product_with_upscale(product_id: str):
             )
 
         filename_prefix = f"upgrade_{product_id}_{int(time.time())}"
-
-        # Collect ALL variant IDs from the product (Printify requires all in print_areas)
         all_product_variant_ids = [v["id"] for v in product.get("variants", [])]
-        assigned_variant_ids = set()
 
-        design_groups = []
-        enabled_sizes = set()
-
-        # Per-size: crop to exact ratio, resize to exact target pixels
-        for size_key in sellable:
-            sa = analysis[size_key]
-            target_ratio = sa.target_width / sa.target_height
-
-            try:
-                cropped = fit_image_to_ratio(source_bytes, target_ratio)
-                resized = upscale_service.upscale_to_target(
-                    cropped, sa.target_width, sa.target_height,
-                )
-                upload = await printify.upload_image_base64(
-                    image_bytes=resized,
-                    filename=f"{filename_prefix}_{size_key}.jpg",
-                )
-                design_groups.append(
-                    DesignGroup(image_id=upload["id"], variant_ids=[sa.variant_id])
-                )
-                enabled_sizes.add(size_key)
-                assigned_variant_ids.add(sa.variant_id)
-            except Exception:
-                pass  # Skip this size on failure
-
-        # All remaining variant IDs (skipped sizes + unknown squares etc.)
-        # go with original unfitted image
-        remaining_vids = [
-            vid for vid in all_product_variant_ids
-            if vid not in assigned_variant_ids
-        ]
-        if remaining_vids:
-            original_upload = await printify.upload_image(
-                image_url=source_url,
-                filename=f"{filename_prefix}_original.png",
+        design_groups, enabled_sizes, assigned_variant_ids = (
+            await _create_per_size_design_groups(
+                sellable, analysis, source_bytes, filename_prefix,
             )
-            design_groups.append(
-                DesignGroup(image_id=original_upload["id"], variant_ids=remaining_vids)
-            )
+        )
 
-        # Build print_areas payload with per-size scale overrides
-        vid_to_size = {vid: sk for sk, vid in PrintifyAPI.SIZE_VARIANT_IDS.items()}
-        print_areas = []
-        for group in design_groups:
-            size_key = vid_to_size.get(group.variant_ids[0]) if len(group.variant_ids) == 1 else None
-            scale = PRINTIFY_SCALE.get(size_key, PRINTIFY_SCALE_DEFAULT) if size_key else PRINTIFY_SCALE_DEFAULT
-            print_areas.append({
-                "variant_ids": group.variant_ids,
-                "placeholders": [{
-                    "position": "front",
-                    "images": [{
-                        "id": group.image_id,
-                        "x": 0.5,
-                        "y": 0.5,
-                        "scale": scale,
-                        "angle": 0,
-                    }],
-                }],
-            })
+        await _assign_remaining_variants(
+            all_product_variant_ids, assigned_variant_ids,
+            design_groups, source_url, filename_prefix,
+        )
 
-        # Build updated variants with correct enabled state
-        updated_variants = []
-        for v in product.get("variants", []):
-            vid = v["id"]
-            size_key = None
-            for sk, sv_id in PrintifyAPI.SIZE_VARIANT_IDS.items():
-                if sv_id == vid:
-                    size_key = sk
-                    break
-            if size_key:
-                is_enabled = size_key in enabled_sizes
-            else:
-                is_enabled = v.get("is_enabled", False)
-            updated_variants.append({
-                "id": vid,
-                "price": v["price"],
-                "is_enabled": is_enabled,
-            })
+        print_areas = _build_print_areas(design_groups)
+        updated_variants = _build_updated_variants(product, enabled_sizes)
 
-        # Update product with new print_areas and variants
         await printify.update_product(
             product_id=product_id,
             variants=updated_variants,
             print_areas=print_areas,
         )
 
-        # Re-publish to Etsy if already published
-        was_published = False
-        external = product.get("external")
-        if external and external.get("id"):
-            try:
-                await printify.publish_product(product_id)
-                was_published = True
-            except Exception:
-                pass
+        was_published = await _republish_if_published(product, product_id)
 
         dpi_dict = {k: v.to_dict() for k, v in analysis.items()}
         return {
