@@ -186,7 +186,7 @@ class TelegramBot:
 
     async def _fetch_live_etsy_stats(self):
         """Fetch live views and favorites from Etsy API for all shop listings."""
-        from routes.etsy_routes import ensure_etsy_token
+        from routes.etsy_auth import ensure_etsy_token
         from deps import etsy as etsy_client
 
         try:

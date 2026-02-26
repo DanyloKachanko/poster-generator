@@ -2,7 +2,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from deps import printify, etsy
-from routes.etsy_routes import ensure_etsy_token
+from routes.etsy_auth import ensure_etsy_token
 import database as db
 
 router = APIRouter(tags=["analytics"])

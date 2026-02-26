@@ -15,7 +15,8 @@ from routes.listings import router as listings_router
 from routes.printify_routes import router as printify_router
 from routes.presets import router as presets_router
 from routes.analytics import router as analytics_router
-from routes.etsy_routes import router as etsy_router
+from routes.etsy_auth import router as etsy_auth_router
+from routes.etsy_listings import router as etsy_listings_router
 from routes.dpi import router as dpi_router
 from routes.library import router as library_router
 from routes.batch import router as batch_router
@@ -104,7 +105,8 @@ app.include_router(listings_router)
 app.include_router(printify_router)
 app.include_router(presets_router)
 app.include_router(analytics_router)
-app.include_router(etsy_router)
+app.include_router(etsy_auth_router)
+app.include_router(etsy_listings_router)
 app.include_router(dpi_router)
 app.include_router(library_router)
 app.include_router(batch_router)

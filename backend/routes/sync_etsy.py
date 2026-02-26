@@ -5,7 +5,7 @@ Fetches all Etsy listings and updates products with etsy_listing_id.
 from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException
 from deps import etsy
-from routes.etsy_routes import ensure_etsy_token
+from routes.etsy_auth import ensure_etsy_token
 import database as db
 
 router = APIRouter(tags=["sync"])

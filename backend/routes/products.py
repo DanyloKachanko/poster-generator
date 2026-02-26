@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import httpx
 from printify import PrintifyAPI
 from deps import printify, etsy as etsy_service, listing_gen, publish_scheduler
-from routes.etsy_routes import ensure_etsy_token
+from routes.etsy_auth import ensure_etsy_token
 import database as db
 
 logger = logging.getLogger(__name__)

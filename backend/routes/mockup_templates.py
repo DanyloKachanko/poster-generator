@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from config import MOCKUP_SCENES, MOCKUP_RATIOS, MOCKUP_STYLES, MODELS, COLOR_GRADE_PRESETS
 from routes.mockup_utils import SaveTemplateRequest, _compose_all_templates, _upload_multi_images_to_etsy
-from routes.etsy_routes import ensure_etsy_token
+from routes.etsy_auth import ensure_etsy_token
 import database as db
 
 logger = logging.getLogger(__name__)
