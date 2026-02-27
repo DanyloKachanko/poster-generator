@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from deps import dovshop_client, etsy
+from deps import dovshop_client, etsy, printify
 from categorizer import categorize_product, get_collection_slug
 from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
@@ -45,6 +45,30 @@ async def _get_mockup_images(pool, source_image_id: int | None, base_url: str) -
         r["etsy_cdn_url"] if r["etsy_cdn_url"] else f"{base_url}/mockups/serve/{r['id']}"
         for r in rows
     ]
+
+
+async def _get_variant_prices(printify_product_id: str) -> dict[str, float]:
+    """Fetch enabled variant prices from Printify and return {size: price} dict.
+
+    Printify variant title format: '8" x 10" / Matte' -> key '8x10'
+    Price is in cents -> divide by 100.
+    """
+    try:
+        product = await printify.get_product(printify_product_id)
+        prices = {}
+        for v in product.get("variants", []):
+            if not v.get("is_enabled"):
+                continue
+            title = v.get("title", "")
+            # Parse '8" x 10" / Matte' or '8\u2033 x 10\u2033 / Matte' -> '8x10'
+            match = _re.match(r'(\d+)["\u2033\u2032\u201d\u2036]\s*x\s*(\d+)["\u2033\u2032\u201d\u2036]', title)
+            if match:
+                size_key = f"{match.group(1)}x{match.group(2)}"
+                prices[size_key] = v.get("price", 0) / 100
+        return prices
+    except Exception as e:
+        logger.warning("Failed to fetch variant prices for %s: %s", printify_product_id, e)
+        return {}
 
 
 def _transform_product(p: dict) -> dict:
@@ -370,6 +394,8 @@ async def sync_all_to_dovshop(req: Request):
                 except Exception:
                     enabled_sizes = []
 
+            size_prices = await _get_variant_prices(product.get("printify_product_id", ""))
+
             title = product.get("title", "")
             collection_slug = get_collection_slug(title, tags)
 
@@ -386,6 +412,7 @@ async def sync_all_to_dovshop(req: Request):
                 "style": style,
                 "categories": categories,
                 "collection_slug": collection_slug,
+                "size_prices": size_prices,
             })
 
         # Send to DovShop
