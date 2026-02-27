@@ -17,6 +17,36 @@ CRITICAL SEO RULES you ALWAYS follow:
 10. Describe EXACTLY what is depicted — subject, composition, colors, artistic technique, mood. Buyers search for specifics.
 11. Shop name: DovShopDesign.
 
+## CRITICAL V2 RULES — TAG QUALITY > TAG CREATIVITY
+
+Every tag must be something a REAL BUYER would type into a search bar.
+Before including a tag, ask: "Would someone type this exact phrase when looking to BUY a poster?"
+
+BAD tags (creative/poetic but nobody searches):
+- "serene nature piece" — poetic, not a search term
+- "tranquil water art" — too abstract
+- "ethereal mountain vista" — nobody types this
+- "peaceful zen moment" — not a product search
+
+GOOD tags (real buyer search terms):
+- "japanese wall art" — high volume, specific
+- "zen bathroom decor" — room + style
+- "minimalist poster" — style + product
+- "mountain landscape print" — subject + product
+- "gift for nature lover" — buyer intent
+
+For EACH tag, mentally verify:
+1. Would someone type this into Etsy/Google to find a poster to BUY?
+2. Is it 2-4 words? (single words = wasted)
+3. Does it combine [subject/style] + [product/room/occasion]?
+4. Is it NOT a generic term already in the Etsy category?
+   (never standalone: "poster", "print", "art", "wall art", "decor", "home decor", "art print")
+
+Etsy does NOT index descriptions for internal search ranking. Description is for:
+1. Google SEO — put SK in first 160 chars for Google snippet
+2. Conversion — convince the visitor to buy
+Do NOT keyword-stuff the description — write for humans, not bots.
+
 Always respond in the exact JSON format requested. No markdown wrapping."""
 
 LISTING_PROMPT_TEMPLATE = """Generate an Etsy listing for a wall art poster.
@@ -45,39 +75,35 @@ Format: [Primary Keyword Phrase] | [Secondary Angle] | [Buyer Context]
 BAD: "Japanese Koi Fish Wall Art Print Poster | Asian Zen Decor | Home Office Bedroom Living Room Gift"
 GOOD: "Koi Fish Ink Art Print | Japanese Zen Decor | Gift for Him"
 
-STEP 3: Generate exactly 13 Tags
-Each tag: max 20 characters, lowercase. Cover these 6 buyer-intent categories:
+STEP 3: Generate exactly 13 Tags (PRIORITY ORDER — generate high-traffic tags first)
+Each tag: max 20 characters, lowercase.
 
-CORE (2 tags):
-1. The SK itself
-2. Close synonym or variation of SK
+HIGH PRIORITY — these drive traffic (generate first):
+1. Superstar Keyword (exact match) — e.g., "japanese mountain art"
+2. SK synonym/variant — e.g., "mount fuji print"
+3-4. Two more high-volume search terms for this niche (think: what would Google/Etsy autocomplete suggest?)
+5-6. Room-specific terms — e.g., "bedroom wall art", "office poster"
 
-BUYER INTENT (3 tags):
-3. Gift angle — "gift for him", "gift for mom", "new home gift"
-4. Purchase motivation — "office decor idea", "bedroom makeover", "nursery art"
-5. Buyer persona — "art lover gift", "nature lover print"
+MEDIUM PRIORITY — buyer intent + occasions:
+7-8. Gift/occasion angles — e.g., "housewarming gift", "birthday present"
+9-10. Buyer persona terms — e.g., "gift for traveler", "nature lover gift"
 
-STYLE / AESTHETIC (3 tags):
-6. Visual style — "minimalist japanese", "zen ink wash", "boho botanical"
-7. Technique or medium look — "watercolor print", "ink drawing art", "oil painting style"
-8. Aesthetic trend — "japandi decor", "cottagecore art", "dark academia"
+FILL — style + long-tail:
+11-12. Style/aesthetic terms — e.g., "japandi decor", "minimalist art"
+13. One ultra-specific long-tail — e.g., "zen meditation room art"
 
-ROOM / SPACE (2 tags):
-9. Primary room — "bedroom wall decor", "living room art"
-10. Secondary room — "office poster", "bathroom print"
-
-OCCASION (2 tags):
-11. Seasonal or event — "christmas gift idea", "housewarming present"
-12. Specific occasion — "anniversary art", "birthday gift art"
-
-LONG-TAIL NICHE (1 tag):
-13. Ultra-specific search term for this exact poster — "mount fuji ink wash", "pink peony close up"
+BANNED as standalone tags (already in Etsy category):
+poster, print, art, wall art, decor, home decor, art print, wall decor, artwork
+These CAN be part of a multi-word tag ("japanese wall art") but NEVER alone.
 
 RULES:
-- Count characters! Each tag MUST be ≤ 20 characters.
+- CRITICAL: Each tag MUST be ≤ 20 characters TOTAL (including spaces). Count carefully!
+  If a tag would be 21+ characters, use fewer words or shorter synonyms.
+  DO NOT generate tags that need to be truncated.
+  Examples: "japanese wall art" = 17 ✓ | "nordic forest silhouette" = 24 ✗ → "nordic forest art" = 17 ✓
 - Do NOT repeat the same root word in more than 3 tags.
-- Each tag must bring NEW search reach — no synonyms that overlap intent.
-- Do NOT use tags that just repeat your Etsy category (e.g., don't use "poster" or "wall art" alone).
+- Every tag must be a REAL search term that buyers actually type. No poetic/creative phrases.
+- Do NOT use tags that just repeat your Etsy category.
 
 STEP 4: Generate Description (min 500 characters)
 Structure:

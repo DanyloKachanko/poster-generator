@@ -12,6 +12,18 @@ from PIL import Image
 from prompts import SYSTEM_PROMPT, LISTING_PROMPT_TEMPLATE, get_style_context
 
 
+def sanitize_tag(tag: str, max_len: int = 20) -> str:
+    """Truncate tag at last complete word boundary, not mid-word."""
+    tag = tag.lower().strip()
+    if len(tag) <= max_len:
+        return tag
+    truncated = tag[:max_len]
+    last_space = truncated.rfind(' ')
+    if last_space > 0:
+        return truncated[:last_space].strip()
+    return truncated.strip()
+
+
 @dataclass
 class EtsyListing:
     title: str
@@ -108,10 +120,10 @@ class ListingGenerator:
 
         # Validate and enforce limits
         title = listing_data["title"][:140]
-        tags = [tag[:20].lower().strip() for tag in listing_data.get("tags", [])[:13]]
+        tags = [sanitize_tag(tag) for tag in listing_data.get("tags", [])[:13]]
         # Pad to 13 if model returned fewer
         while len(tags) < 13:
-            tags.append(f"wall art print {len(tags)}"[:20])
+            tags.append(sanitize_tag(f"wall art print {len(tags)}"))
         desc = listing_data.get("description", "")
         sk = listing_data.get("superstar_keyword", "")
 
@@ -188,9 +200,9 @@ Respond with valid JSON only:
         listing_data = json.loads(content, strict=False)
 
         title = listing_data["title"][:140]
-        tags = [tag[:20].lower().strip() for tag in listing_data.get("tags", [])[:13]]
+        tags = [sanitize_tag(tag) for tag in listing_data.get("tags", [])[:13]]
         while len(tags) < 13:
-            tags.append(f"wall art print {len(tags)}"[:20])
+            tags.append(sanitize_tag(f"wall art print {len(tags)}"))
         desc = listing_data.get("description", "")
         sk = listing_data.get("superstar_keyword", "")
 
@@ -444,10 +456,10 @@ VALIDATE BEFORE RESPONDING:
         # Enforce basic limits
         result["title"] = result.get("title", "")[:140]
         result["tags"] = [
-            tag[:20].lower().strip() for tag in result.get("tags", [])[:13]
+            sanitize_tag(tag) for tag in result.get("tags", [])[:13]
         ]
         while len(result["tags"]) < 13:
-            result["tags"].append(f"wall art print {len(result['tags'])}"[:20])
+            result["tags"].append(sanitize_tag(f"wall art print {len(result['tags'])}"))
         result["description"] = result.get("description", "")
         result["superstar_keyword"] = result.get("superstar_keyword", "")
         result["materials"] = result.get("materials", ["Archival paper", "Ink"])
@@ -559,7 +571,7 @@ Respond with ONLY a comma-separated list of 13 tags, no quotes, no explanation."
             data = response.json()
 
         text = data["content"][0]["text"].strip()
-        tags = [tag[:20].lower().strip() for tag in text.split(",") if tag.strip()]
+        tags = [sanitize_tag(tag) for tag in text.split(",") if tag.strip()]
         return tags[:13]
 
     async def regenerate_description(

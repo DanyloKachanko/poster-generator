@@ -3,9 +3,7 @@ import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
-import httpx
-
-from deps import etsy, printify
+from deps import etsy, etsy_sync
 import database as db
 
 router = APIRouter(tags=["etsy"])
@@ -199,121 +197,36 @@ async def disconnect_etsy():
 
 @router.post("/etsy/sync")
 async def sync_etsy_analytics():
-    """
-    Fetch views/favorites from Etsy for all Printify products.
-    Saves lifetime totals as today's snapshot.
-    """
-    access_token, _shop_id = await ensure_etsy_token()
-
-    # Get Printify products to find Etsy listing IDs
-    if not printify.is_configured:
-        raise HTTPException(status_code=400, detail="Printify not configured")
-
+    """Batch-fetch views/favorites from Etsy for all Printify products."""
+    await ensure_etsy_token()  # validates connection
     try:
-        result = await printify.list_products(page=1, limit=50)
-        products = result.get("data", [])
+        return await etsy_sync.sync_views_favorites()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch Printify products: {e}")
-
-    today = time.strftime("%Y-%m-%d")
-    synced = []
-
-    for product in products:
-        external = product.get("external")
-        if not external or not external.get("id"):
-            continue
-
-        etsy_listing_id = external["id"]
-        printify_product_id = product["id"]
-
-        try:
-            listing = await etsy.get_listing(access_token, etsy_listing_id)
-            views = listing.get("views", 0) or 0
-            favorites = listing.get("num_favorers", 0) or 0
-
-            await db.save_analytics(
-                printify_product_id=printify_product_id,
-                date=today,
-                views=views,
-                favorites=favorites,
-                notes="etsy_sync",
-            )
-
-            synced.append({
-                "printify_product_id": printify_product_id,
-                "etsy_listing_id": etsy_listing_id,
-                "title": product.get("title", ""),
-                "views": views,
-                "favorites": favorites,
-            })
-        except Exception as e:
-            synced.append({
-                "printify_product_id": printify_product_id,
-                "etsy_listing_id": etsy_listing_id,
-                "error": str(e),
-            })
-
-    return {"synced": len(synced), "products": synced, "date": today}
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/etsy/sync-orders")
 async def sync_etsy_orders():
     """Fetch orders/revenue from Etsy receipts and store in analytics."""
-    access_token, shop_id = await ensure_etsy_token()
-
-    if not printify.is_configured:
-        raise HTTPException(status_code=400, detail="Printify not configured")
-
+    await ensure_etsy_token()  # validates connection
     try:
-        # Build listing_id -> printify_product_id map
-        result = await printify.list_products(page=1, limit=50)
-        products = result.get("data", [])
-        listing_to_product = {}
-        for p in products:
-            external = p.get("external")
-            if external and external.get("id"):
-                listing_to_product[str(external["id"])] = p["id"]
+        return await etsy_sync.sync_orders()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        # Fetch receipts from Etsy
-        receipts = await etsy.get_shop_receipts(access_token, shop_id)
 
-        # Aggregate orders + revenue by product
-        product_orders: dict = {}
-        for receipt in receipts:
-            for transaction in receipt.get("transactions", []):
-                listing_id = str(transaction.get("listing_id", ""))
-                printify_id = listing_to_product.get(listing_id)
-                if not printify_id:
-                    continue
-
-                if printify_id not in product_orders:
-                    product_orders[printify_id] = {"orders": 0, "revenue_cents": 0}
-
-                product_orders[printify_id]["orders"] += transaction.get("quantity", 1)
-                price = transaction.get("price", {})
-                amount = price.get("amount", 0) or 0
-                divisor = price.get("divisor", 100) or 100
-                product_orders[printify_id]["revenue_cents"] += int(amount / divisor * 100)
-
-        # Save to analytics
-        today = time.strftime("%Y-%m-%d")
-        synced = []
-        for printify_id, data in product_orders.items():
-            existing = await db.get_product_analytics_for_date(printify_id, today)
-            await db.save_analytics(
-                printify_product_id=printify_id,
-                date=today,
-                views=existing.get("views", 0) if existing else 0,
-                favorites=existing.get("favorites", 0) if existing else 0,
-                orders=data["orders"],
-                revenue_cents=data["revenue_cents"],
-                notes="etsy_order_sync",
-            )
-            synced.append({"printify_product_id": printify_id, **data})
-
-        return {"synced": len(synced), "products": synced, "date": today}
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=str(e))
+@router.post("/etsy/sync/full")
+async def sync_etsy_full():
+    """Run both views/favorites and orders sync."""
+    await ensure_etsy_token()
+    try:
+        return await etsy_sync.full_sync()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

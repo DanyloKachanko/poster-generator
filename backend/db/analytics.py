@@ -174,3 +174,110 @@ async def get_product_analytics_for_date(
             printify_product_id, date,
         )
         return dict(row) if row else None
+
+
+async def get_listing_trends(
+    printify_product_id: str, days: int = 30,
+) -> List[Dict[str, Any]]:
+    """Get daily view/favorite deltas for a single listing over N days."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            WITH snapshots AS (
+                SELECT date, views, favorites, orders, revenue_cents
+                FROM product_analytics
+                WHERE printify_product_id = $1
+                  AND date >= (CURRENT_DATE - ($2 + 1) * INTERVAL '1 day')::date::text
+                ORDER BY date
+            )
+            SELECT date, views, favorites, orders, revenue_cents,
+                   views - COALESCE(LAG(views) OVER (ORDER BY date), 0) AS new_views,
+                   favorites - COALESCE(LAG(favorites) OVER (ORDER BY date), 0) AS new_favorites
+            FROM snapshots
+            WHERE date >= (CURRENT_DATE - $2 * INTERVAL '1 day')::date::text
+            """,
+            printify_product_id, days,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_dead_listings(days: int = 14, min_age_days: int = 7) -> List[Dict[str, Any]]:
+    """Listings with zero view growth over the last N days (stale)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            WITH recent AS (
+                SELECT printify_product_id,
+                       MAX(views) AS latest_views,
+                       MIN(views) AS earliest_views,
+                       MAX(favorites) AS latest_favorites,
+                       MIN(date) AS first_date
+                FROM product_analytics
+                WHERE date >= (CURRENT_DATE - $1 * INTERVAL '1 day')::date::text
+                GROUP BY printify_product_id
+                HAVING COUNT(*) >= 2
+            )
+            SELECT printify_product_id,
+                   latest_views, earliest_views,
+                   latest_views - earliest_views AS view_growth,
+                   latest_favorites,
+                   first_date
+            FROM recent
+            WHERE latest_views - earliest_views = 0
+              AND first_date <= (CURRENT_DATE - $2 * INTERVAL '1 day')::date::text
+            ORDER BY latest_views DESC
+            """,
+            days, min_age_days,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_top_performers(days: int = 7, limit: int = 10) -> List[Dict[str, Any]]:
+    """Top listings by view growth over the last N days."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            WITH period AS (
+                SELECT printify_product_id,
+                       MAX(views) AS latest_views,
+                       MIN(views) AS earliest_views,
+                       MAX(favorites) AS latest_favorites,
+                       MIN(favorites) AS earliest_favorites,
+                       COALESCE(SUM(orders), 0) AS period_orders,
+                       COALESCE(SUM(revenue_cents), 0) AS period_revenue_cents
+                FROM product_analytics
+                WHERE date >= (CURRENT_DATE - $1 * INTERVAL '1 day')::date::text
+                GROUP BY printify_product_id
+                HAVING COUNT(*) >= 2
+            )
+            SELECT printify_product_id,
+                   latest_views, earliest_views,
+                   latest_views - earliest_views AS view_growth,
+                   latest_favorites - earliest_favorites AS favorite_growth,
+                   period_orders, period_revenue_cents
+            FROM period
+            WHERE latest_views - earliest_views > 0
+            ORDER BY latest_views - earliest_views DESC
+            LIMIT $2
+            """,
+            days, limit,
+        )
+        return [dict(row) for row in rows]
+
+
+async def get_sync_status() -> Optional[Dict[str, Any]]:
+    """Get the latest sync date and count of tracked products."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT MAX(date) AS last_sync_date,
+                   COUNT(DISTINCT printify_product_id) AS tracked_products,
+                   COUNT(*) AS total_snapshots
+            FROM product_analytics
+            """
+        )
+        return dict(row) if row else None

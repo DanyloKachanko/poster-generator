@@ -26,6 +26,8 @@ import {
   ETSY_COLORS,
 } from '@/lib/api';
 import { analyzeSeo, scoreColor, scoreBg, scoreGrade, SeoIssue, SeoAnalysis } from '@/lib/seo-score';
+import { calculateSEOScoreV2, scoreColorV2, scoreGradeV2, type SEOScoreResultV2, type AutocompleteData } from '@/lib/seo-score-v2';
+import { validateTags, validateTagsEtsy, type ValidateTagsResponse, type ValidateTagsEtsyResponse } from '@/lib/api';
 
 type SortKey = 'title' | 'views' | 'favs' | 'score';
 
@@ -71,6 +73,11 @@ export default function SeoPage() {
   const [newMaterial, setNewMaterial] = useState('');
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+
+  // SEO V2 validation (Google + Etsy)
+  const [tagValidation, setTagValidation] = useState<ValidateTagsResponse | null>(null);
+  const [etsyValidation, setEtsyValidation] = useState<ValidateTagsEtsyResponse | null>(null);
+  const [validating, setValidating] = useState(false);
 
   // AI Fill
   const [aiFilling, setAiFilling] = useState(false);
@@ -150,6 +157,44 @@ export default function SeoPage() {
     () => analyzeSeo(editTitle, editTags, editDesc, editMaterials, { primary: editPrimaryColor, secondary: editSecondaryColor }, editAltTexts),
     [editTitle, editTags, editDesc, editMaterials, editPrimaryColor, editSecondaryColor, editAltTexts]
   );
+
+  const analysisV2 = useMemo(
+    () => calculateSEOScoreV2(
+      editTitle, editTags, editDesc, editMaterials,
+      { primary: editPrimaryColor, secondary: editSecondaryColor },
+      editAltTexts,
+      tagValidation ? tagValidation as AutocompleteData : undefined,
+    ),
+    [editTitle, editTags, editDesc, editMaterials, editPrimaryColor, editSecondaryColor, editAltTexts, tagValidation]
+  );
+
+  // Tag validation lookup
+  const tagValidationMap = useMemo(() => {
+    if (!tagValidation) return new Map<string, boolean>();
+    return new Map(tagValidation.results.map(r => [r.tag.toLowerCase(), r.found]));
+  }, [tagValidation]);
+
+  const etsyValidationMap = useMemo(() => {
+    if (!etsyValidation) return new Map<string, { found: boolean; results: number; demand: string }>();
+    return new Map(etsyValidation.results.map(r => [r.tag.toLowerCase(), { found: r.found, results: r.total_results, demand: r.demand }]));
+  }, [etsyValidation]);
+
+  const handleValidateTags = async () => {
+    if (editTags.length === 0) return;
+    setValidating(true);
+    try {
+      const [googleResult, etsyResult] = await Promise.all([
+        validateTags(editTags),
+        validateTagsEtsy(editTags),
+      ]);
+      setTagValidation(googleResult);
+      setEtsyValidation(etsyResult);
+    } catch {
+      setError('Tag validation failed');
+    } finally {
+      setValidating(false);
+    }
+  };
 
   const activeListing = listings.find((l) => l.listing_id === activeId);
 
@@ -267,6 +312,8 @@ export default function SeoPage() {
     setError(null);
     setSuccessMsg(null);
     setShowMockupPicker(false);
+    setTagValidation(null);
+    setEtsyValidation(null);
 
     // Fetch current color properties (non-blocking)
     getEtsyListingProperties(String(listing.listing_id)).then((data) => {
@@ -494,6 +541,8 @@ export default function SeoPage() {
 
   const removeTag = (index: number) => {
     setEditTags(editTags.filter((_, i) => i !== index));
+    setTagValidation(null);
+    setEtsyValidation(null);
     markDirty();
   };
 
@@ -502,6 +551,8 @@ export default function SeoPage() {
     if (!tag || tag.length > 20 || editTags.length >= 13) return;
     setEditTags([...editTags, tag]);
     setNewTag('');
+    setTagValidation(null);
+    setEtsyValidation(null);
     markDirty();
   };
 
@@ -1027,31 +1078,62 @@ export default function SeoPage() {
                 </div>
               )}
 
-              {/* SEO Score Panel */}
+              {/* SEO Score V2 Panel */}
               <div className="mb-3 bg-dark-bg border border-dark-border rounded p-3">
                 <div className="flex items-center gap-4 mb-2">
                   <div className="text-center">
-                    <div className={`text-2xl font-bold ${scoreColor(analysis.score)}`}>{analysis.score}</div>
-                    <div className={`text-[10px] font-bold ${scoreColor(analysis.score)}`}>{scoreGrade(analysis.score)}</div>
+                    <div className={`text-2xl font-bold ${scoreColorV2(analysisV2.total, analysisV2.max)}`}>
+                      {analysisV2.total}/{analysisV2.max}
+                    </div>
+                    <div className={`text-[10px] font-bold ${scoreColorV2(analysisV2.total, analysisV2.max)}`}>
+                      {analysisV2.grade}{!analysisV2.isOnline && ' (offline)'}
+                    </div>
                   </div>
-                  <div className="flex-1 grid grid-cols-4 gap-2">
-                    {([['Title', analysis.titleScore, 30], ['Tags', analysis.tagsScore, 30], ['Desc', analysis.descScore, 25], ['Meta', Math.min(15, Math.max(0, analysis.score - analysis.titleScore - analysis.tagsScore - analysis.descScore)), 15]] as const).map(([label, s, max]) => (
+                  <div className="flex-1 grid grid-cols-5 gap-1.5">
+                    {([
+                      ['Title', analysisV2.sections.title.total, 35],
+                      ['Tags', analysisV2.sections.tags.total, 35],
+                      ['Desc', analysisV2.sections.description.total, 15],
+                      ['Meta', analysisV2.sections.metadata.total, 5],
+                      ['Market', analysisV2.sections.marketFit?.total ?? 0, 10],
+                    ] as [string, number, number][]).map(([label, s, max]) => (
                       <div key={label} className="text-center">
-                        <div className={`text-sm font-semibold ${scoreColor((s / max) * 100)}`}>{s}/{max}</div>
-                        <div className="text-[10px] text-gray-500">{label}</div>
-                        <div className="h-1 bg-dark-border rounded-full mt-1 overflow-hidden">
-                          <div className={`h-full rounded-full ${scoreBg((s / max) * 100)}`} style={{ width: `${(s / max) * 100}%` }} />
+                        <div className={`text-xs font-semibold ${max > 0 ? scoreColorV2(Math.round((s / max) * 100)) : 'text-gray-600'}`}>{s}/{max}</div>
+                        <div className="text-[9px] text-gray-500">{label}</div>
+                        <div className="h-1 bg-dark-border rounded-full mt-0.5 overflow-hidden">
+                          <div className={`h-full rounded-full ${max > 0 && s > 0 ? 'bg-accent' : 'bg-dark-border'}`} style={{ width: `${max > 0 ? (s / max) * 100 : 0}%` }} />
                         </div>
                       </div>
                     ))}
                   </div>
+                  <button
+                    onClick={handleValidateTags}
+                    disabled={validating || editTags.length === 0}
+                    className="px-2.5 py-1.5 text-[10px] font-medium bg-accent/20 text-accent border border-accent/30 rounded hover:bg-accent/30 transition-colors disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {validating ? 'Checking...' : tagValidation ? 'Re-validate' : 'Validate'}
+                  </button>
                 </div>
+                {/* V1 comparison */}
+                <div className="text-[10px] text-gray-600 mb-1.5">
+                  V1: {analysis.score}/100 {scoreGrade(analysis.score)} → V2: {analysisV2.total}/{analysisV2.max} {analysisV2.grade}
+                  {tagValidation && <span className="text-accent ml-2">G:{tagValidation.found}/{tagValidation.total}</span>}
+                  {etsyValidation && <span className="text-orange-400 ml-1">E:{etsyValidation.found}/{etsyValidation.total}</span>}
+                </div>
+                {/* Issues */}
                 <div className="space-y-0.5 max-h-28 overflow-y-auto">
-                  {analysis.issues.map((issue, i) => (
+                  {analysisV2.issues.map((issue, i) => (
                     <div key={i} className={`flex items-start gap-1.5 text-[11px] ${issueColor(issue.type)}`}>
                       <span className="w-3 text-center flex-shrink-0 font-bold">{issueIcon(issue.type)}</span>
-                      <span className="text-gray-500 w-12 flex-shrink-0">{issue.area}</span>
+                      <span className="text-gray-500 w-10 flex-shrink-0">{issue.area}</span>
                       <span>{issue.message}</span>
+                    </div>
+                  ))}
+                  {analysisV2.suggestions.map((s, i) => (
+                    <div key={`s-${i}`} className="flex items-start gap-1.5 text-[11px] text-blue-400">
+                      <span className="w-3 text-center flex-shrink-0">→</span>
+                      <span className="text-gray-500 w-10 flex-shrink-0">tip</span>
+                      <span>{s}</span>
                     </div>
                   ))}
                 </div>
@@ -1099,24 +1181,55 @@ export default function SeoPage() {
                 </div>
                 <div className={`bg-dark-bg border border-dark-border rounded p-2 ${fieldHighlight('tags')}`}>
                   <div className="flex flex-wrap gap-1.5 mb-2">
-                    {editTags.map((tag, i) => (
-                      <span
-                        key={i}
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${
-                          tag.length > 20
-                            ? 'border-red-800 bg-red-900/20 text-red-300'
-                            : 'border-dark-border bg-dark-card text-gray-300'
-                        }`}
-                      >
-                        {tag}
-                        <button
-                          onClick={() => removeTag(i)}
-                          className="text-gray-500 hover:text-red-400 ml-0.5 leading-none"
+                    {editTags.map((tag, i) => {
+                      const google = tagValidationMap.get(tag.toLowerCase());
+                      const etsy = etsyValidationMap.get(tag.toLowerCase());
+                      const hasValidation = google !== undefined || etsy !== undefined;
+                      const bothGood = google === true && etsy?.found === true;
+                      const bothBad = google === false && etsy?.found === false;
+                      const etsyDead = etsy?.demand === 'dead';
+
+                      let borderClass = 'border-dark-border bg-dark-card text-gray-300';
+                      let tooltip = '';
+                      if (tag.length > 20) {
+                        borderClass = 'border-red-800 bg-red-900/20 text-red-300';
+                        tooltip = `Tag too long: ${tag.length}/20 chars`;
+                      } else if (hasValidation) {
+                        if (bothGood) {
+                          borderClass = 'border-green-800 bg-green-900/15 text-green-300';
+                          tooltip = `Google: found | Etsy: ${etsy?.results?.toLocaleString()} results (${etsy?.demand})`;
+                        } else if (bothBad || etsyDead) {
+                          borderClass = 'border-red-800 bg-red-900/15 text-red-300';
+                          tooltip = `${google === false ? 'Google: not found' : 'Google: found'} | Etsy: ${etsy?.results?.toLocaleString() ?? '?'} results (${etsy?.demand ?? '?'}) — replace this tag`;
+                        } else {
+                          borderClass = 'border-yellow-800 bg-yellow-900/15 text-yellow-300';
+                          tooltip = `${google === true ? 'Google: found' : google === false ? 'Google: not found' : ''} | Etsy: ${etsy?.results?.toLocaleString() ?? '?'} results (${etsy?.demand ?? '?'})`;
+                        }
+                      }
+
+                      return (
+                        <span
+                          key={i}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs border ${borderClass}`}
+                          title={tooltip}
                         >
-                          &times;
-                        </button>
-                      </span>
-                    ))}
+                          {hasValidation && (
+                            <span className="flex gap-0.5 text-[9px]">
+                              {google !== undefined && <span className={google ? 'text-green-400' : 'text-red-400'}>G{google ? '✓' : '✗'}</span>}
+                              {etsy !== undefined && <span className={etsy.found ? 'text-green-400' : 'text-red-400'}>E{etsy.found ? '✓' : '✗'}</span>}
+                            </span>
+                          )}
+                          {tag}
+                          {etsy && <span className="text-[8px] text-gray-500 ml-0.5">{etsy.results >= 1000 ? `${Math.round(etsy.results / 1000)}k` : etsy.results}</span>}
+                          <button
+                            onClick={() => removeTag(i)}
+                            className="text-gray-500 hover:text-red-400 ml-0.5 leading-none"
+                          >
+                            &times;
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                   {editTags.length < 13 && (
                     <div className="flex gap-2">

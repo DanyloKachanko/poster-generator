@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from deps import dovshop_client
+from deps import dovshop_client, etsy
 from categorizer import categorize_product
 from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
@@ -28,16 +28,23 @@ def _get_base_url(request: Request) -> str:
 
 
 async def _get_mockup_images(pool, source_image_id: int | None, base_url: str) -> list[str]:
-    """Get mockup serve URLs for DovShop, primary first then by rank."""
+    """Get image URLs for DovShop, preferring Etsy CDN, falling back to mockup serve.
+
+    Primary mockup first, then by rank. Uses etsy_cdn_url when available
+    (public, fast CDN) and falls back to /mockups/serve/{id} otherwise.
+    """
     if not source_image_id:
         return []
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id FROM image_mockups
+            SELECT id, etsy_cdn_url FROM image_mockups
             WHERE image_id = $1 AND dovshop_included = true
             ORDER BY dovshop_primary DESC, rank ASC
         """, source_image_id)
-    return [f"{base_url}/mockups/serve/{r['id']}" for r in rows]
+    return [
+        r["etsy_cdn_url"] if r["etsy_cdn_url"] else f"{base_url}/mockups/serve/{r['id']}"
+        for r in rows
+    ]
 
 
 def _transform_product(p: dict) -> dict:
@@ -291,6 +298,28 @@ async def sync_all_to_dovshop(req: Request):
         raise HTTPException(status_code=400, detail="DovShop not configured")
 
     try:
+        # Get active Etsy listing IDs to filter out deactivated/expired
+        active_etsy_ids: set = set()
+        try:
+            tokens = await db.get_etsy_tokens()
+            if tokens and tokens.get("shop_id"):
+                import time as _time
+                access_token = tokens["access_token"]
+                if tokens["expires_at"] < int(_time.time()):
+                    new_tokens = await etsy.refresh_access_token(tokens["refresh_token"])
+                    await db.save_etsy_tokens(
+                        access_token=new_tokens.access_token,
+                        refresh_token=new_tokens.refresh_token,
+                        expires_at=new_tokens.expires_at,
+                        shop_id=tokens["shop_id"],
+                    )
+                    access_token = new_tokens.access_token
+                listings = await etsy.get_all_listings(access_token, tokens["shop_id"])
+                active_etsy_ids = {str(l["listing_id"]) for l in listings}
+                logger.info("DovShop sync: %d active Etsy listings found", len(active_etsy_ids))
+        except Exception as e:
+            logger.warning("Could not fetch active Etsy listings: %s — syncing all", e)
+
         pool = await db.get_pool()
         async with pool.acquire() as conn:
             rows = await conn.fetch("""
@@ -301,6 +330,10 @@ async def sync_all_to_dovshop(req: Request):
                 WHERE p.etsy_listing_id IS NOT NULL
                 ORDER BY p.created_at DESC
             """)
+
+        # Filter to only active Etsy listings (if we got the list)
+        if active_etsy_ids:
+            rows = [r for r in rows if r["etsy_listing_id"] in active_etsy_ids]
 
         if not rows:
             return {"total": 0, "created": 0, "updated": 0, "errors": [], "message": "No published products found"}
@@ -362,12 +395,30 @@ async def sync_all_to_dovshop(req: Request):
             if pid and did:
                 await db.set_product_dovshop_id(pid, str(did))
 
+        # Remove DovShop products not in current Etsy-published set
+        synced_printify_ids = {p["printify_id"] for p in posters if p.get("printify_id")}
+        removed = 0
+        try:
+            dovshop_products = await dovshop_client.get_products()
+            for dp in dovshop_products:
+                dp_pid = dp.get("printifyId") or dp.get("printify_id") or ""
+                dp_id = dp.get("id")
+                if dp_pid and dp_pid not in synced_printify_ids and dp_id:
+                    try:
+                        await dovshop_client.delete_product(str(dp_id))
+                        removed += 1
+                    except Exception as e:
+                        logger.warning("Failed to remove DovShop product %s: %s", dp_id, e)
+        except Exception as e:
+            logger.warning("Failed to clean up DovShop products: %s", e)
+
         return {
             "total": result.get("total", len(posters)),
             "created": result.get("created", 0),
             "updated": result.get("updated", 0),
+            "removed": removed,
             "errors": result.get("errors", []),
-            "message": f"Synced {len(posters)} products to DovShop",
+            "message": f"Synced {len(posters)} products to DovShop, removed {removed} stale",
         }
     except HTTPException:
         raise

@@ -2968,3 +2968,71 @@ export async function syncProductsFromPrintify(): Promise<{ total: number; impor
   }
   return response.json();
 }
+
+// === SEO V2: Autocomplete Validation ===
+
+export interface AutocompleteTagResult {
+  tag: string;
+  found: boolean;
+  position: number | null;
+  suggestions: string[];
+}
+
+export interface ValidateTagsResponse {
+  total: number;
+  found: number;
+  not_found: number;
+  results: AutocompleteTagResult[];
+  score: number;
+}
+
+export async function validateTags(tags: string[]): Promise<ValidateTagsResponse> {
+  const response = await apiFetch(`${getApiUrl()}/seo/validate-tags`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Validation failed' }));
+    throw new Error(error.detail || 'Validation failed');
+  }
+  return response.json();
+}
+
+export async function getSeoAutocomplete(query: string): Promise<{ query: string; suggestions: string[] }> {
+  const response = await apiFetch(`${getApiUrl()}/seo/autocomplete?q=${encodeURIComponent(query)}`);
+  if (!response.ok) throw new Error('Autocomplete failed');
+  return response.json();
+}
+
+// === SEO V2.1: Etsy Search Volume Validation ===
+
+export interface EtsyTagResult {
+  tag: string;
+  found: boolean;
+  total_results: number;
+  demand: 'high' | 'medium' | 'low' | 'dead' | 'error';
+  source: 'etsy';
+}
+
+export interface ValidateTagsEtsyResponse {
+  total: number;
+  found: number;
+  not_found: number;
+  results: EtsyTagResult[];
+  score: number;
+  source: 'etsy';
+}
+
+export async function validateTagsEtsy(tags: string[]): Promise<ValidateTagsEtsyResponse> {
+  const response = await apiFetch(`${getApiUrl()}/seo/validate-tags-etsy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Etsy validation failed' }));
+    throw new Error(error.detail || 'Etsy validation failed');
+  }
+  return response.json();
+}

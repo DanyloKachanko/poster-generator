@@ -218,18 +218,38 @@ export default function DashboardPage() {
               <h2 className="text-sm font-medium text-gray-400 uppercase tracking-wider mb-3">
                 Needs Attention
               </h2>
-              <div className="space-y-2">
-                {needsAttention.map((p) => (
-                  <div key={p.printify_product_id} className="flex items-center gap-3">
-                    <span className={`text-xs font-bold w-8 ${scoreColor(p.seo_score)}`}>
-                      {scoreGrade(p.seo_score)} {p.seo_score}
-                    </span>
-                    <span className="text-sm text-gray-300 flex-1 truncate">{p.title}</span>
-                    {p.total_views === 0 && (
-                      <span className="text-xs text-red-400">0 views</span>
-                    )}
-                  </div>
-                ))}
+              <div className="space-y-2.5">
+                {needsAttention.map((p) => {
+                  const reasons: string[] = [];
+                  if (p.total_views === 0) reasons.push('No views');
+                  if (p.seo_score < 40) reasons.push('Poor SEO');
+                  else if (p.seo_score < 60) reasons.push('Low SEO');
+                  return (
+                    <Link
+                      key={p.printify_product_id}
+                      href={`/products/${p.printify_product_id}`}
+                      className="flex items-center gap-3 group hover:bg-dark-hover/50 rounded-lg p-1.5 -m-1.5 transition-colors"
+                    >
+                      {p.thumbnail ? (
+                        <img src={p.thumbnail} alt="" className="w-8 h-8 rounded object-cover flex-shrink-0" />
+                      ) : (
+                        <div className="w-8 h-8 rounded bg-dark-bg flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm text-gray-300 truncate group-hover:text-white transition-colors">{p.title}</div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {reasons.map((r) => (
+                            <span key={r} className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400">{r}</span>
+                          ))}
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded bg-dark-bg ${scoreColor(p.seo_score)}`}>
+                            SEO {p.seo_score}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-600">{p.total_views} views</span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -343,25 +363,36 @@ export default function DashboardPage() {
 /* ----- Views Chart Component ----- */
 
 function ViewsChart({ data }: { data: { date: string; views: number }[] }) {
-  const maxViews = Math.max(...data.map((d) => d.views), 1);
+  // Fill in missing days with 0 views for a complete 30-day chart
+  const filled: { date: string; views: number }[] = [];
+  const viewsMap = new Map(data.map((d) => [d.date, d.views]));
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - 29);
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    filled.push({ date: key, views: viewsMap.get(key) || 0 });
+  }
+
+  const maxViews = Math.max(...filled.map((d) => d.views), 1);
 
   return (
-    <div className="flex items-end gap-1 h-32">
-      {data.map((d) => {
-        const height = Math.max((d.views / maxViews) * 100, 2);
+    <div className="flex items-end gap-0.5 h-32">
+      {filled.map((d) => {
+        const height = d.views > 0 ? Math.max((d.views / maxViews) * 100, 4) : 2;
         const dateLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
         return (
           <div
             key={d.date}
-            className="flex-1 group relative"
+            className="flex-1 h-full group relative flex items-end"
             title={`${dateLabel}: ${d.views} views`}
           >
             <div
-              className="bg-purple-500/60 hover:bg-purple-400/80 rounded-t transition-colors w-full"
+              className={`${d.views > 0 ? 'bg-purple-500/60 hover:bg-purple-400/80' : 'bg-gray-700/30'} rounded-t transition-colors w-full`}
               style={{ height: `${height}%` }}
             />
             {/* Tooltip on hover */}
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block">
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-10">
               <div className="bg-dark-bg border border-dark-border rounded px-2 py-1 text-xs text-gray-300 whitespace-nowrap">
                 {dateLabel}: {d.views}
               </div>

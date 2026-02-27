@@ -302,3 +302,43 @@ async def get_product_analytics(product_id: str, limit: int = 365, offset: int =
         return {"entries": entries}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analytics/{product_id}/trends")
+async def get_product_trends(product_id: str, days: int = 30):
+    """Get daily view/favorite deltas for a single listing."""
+    try:
+        trends = await db.get_listing_trends(product_id, days=days)
+        return {"product_id": product_id, "days": days, "trends": trends}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analytics/trends/top")
+async def get_top_performers(days: int = 7, limit: int = 10):
+    """Top listings by view growth over the last N days."""
+    try:
+        top = await db.get_top_performers(days=days, limit=limit)
+        return {"days": days, "products": top}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analytics/trends/dead")
+async def get_dead_listings(days: int = 14, min_age_days: int = 7):
+    """Listings with zero view growth (stale)."""
+    try:
+        dead = await db.get_dead_listings(days=days, min_age_days=min_age_days)
+        return {"days": days, "min_age_days": min_age_days, "products": dead}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/analytics/sync-status")
+async def get_sync_status():
+    """Get latest sync date and tracked product count."""
+    try:
+        status = await db.get_sync_status()
+        return status or {"last_sync_date": None, "tracked_products": 0, "total_snapshots": 0}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

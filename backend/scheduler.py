@@ -30,11 +30,12 @@ _DEFAULT_TIMES = [dt_time(10, 0), dt_time(14, 0), dt_time(18, 0)]
 class PublishScheduler:
     CHECK_INTERVAL_MINUTES = 5
 
-    def __init__(self, printify: PrintifyAPI, notifier: NotificationService, etsy=None, listing_gen=None):
+    def __init__(self, printify: PrintifyAPI, notifier: NotificationService, etsy=None, listing_gen=None, etsy_sync=None):
         self.printify = printify
         self.notifier = notifier
         self.etsy = etsy
         self.listing_gen = listing_gen
+        self.etsy_sync = etsy_sync
         self.scheduler = AsyncIOScheduler()
         # Cached settings — reloaded every check cycle
         self._publish_times: List[dt_time] = list(_DEFAULT_TIMES)
@@ -114,6 +115,14 @@ class PublishScheduler:
             hour=11,
             minute=0,
             id="auto_seo_refresh",
+            replace_existing=True,
+        )
+        # Etsy analytics auto-sync — every 6 hours
+        self.scheduler.add_job(
+            self._auto_etsy_sync,
+            "interval",
+            hours=6,
+            id="etsy_auto_sync",
             replace_existing=True,
         )
         self.scheduler.start()
@@ -989,3 +998,15 @@ class PublishScheduler:
             await self.notifier.send_message(
                 f"🔄 Auto SEO refresh: updated {refreshed}/{len(candidates)} listings with low views"
             )
+
+    async def _auto_etsy_sync(self):
+        """Every 6 hours: batch-fetch Etsy views/favorites/orders."""
+        if not self.etsy_sync:
+            return
+        try:
+            result = await self.etsy_sync.full_sync()
+            views_count = result["views"]["synced"]
+            orders_count = result["orders"]["synced"]
+            logger.info("Auto Etsy sync: %d views/favs, %d orders", views_count, orders_count)
+        except Exception as e:
+            logger.error("Auto Etsy sync failed: %s", e)
