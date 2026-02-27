@@ -9,7 +9,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from deps import dovshop_client, etsy
-from categorizer import categorize_product
+from categorizer import categorize_product, get_collection_slug
 from dovshop_ai import enrich_product, analyze_catalog_strategy
 import database as db
 import re as _re
@@ -370,8 +370,11 @@ async def sync_all_to_dovshop(req: Request):
                 except Exception:
                     enabled_sizes = []
 
+            title = product.get("title", "")
+            collection_slug = get_collection_slug(title, tags)
+
             posters.append({
-                "name": product.get("title", ""),
+                "name": title,
                 "images": images,
                 "description": product.get("description", ""),
                 "tags": tags,
@@ -382,6 +385,7 @@ async def sync_all_to_dovshop(req: Request):
                 "sizes": enabled_sizes,
                 "style": style,
                 "categories": categories,
+                "collection_slug": collection_slug,
             })
 
         # Send to DovShop

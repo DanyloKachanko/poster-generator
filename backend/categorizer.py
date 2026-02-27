@@ -104,3 +104,54 @@ def categorize_product(tags: list[str] | None, style: str | None = None) -> list
             categories.add("gift-ideas")
 
     return sorted(categories)
+
+
+# DovShop collection keywords — slug → list of trigger words (checked against name + tags)
+COLLECTION_KEYWORDS = {
+    "botanical-garden": [
+        "botanical", "eucalyptus", "fern", "monstera", "wildflower", "olive branch",
+        "palm leaf", "tropical", "cherry blossom", "sakura", "succulent", "dried flower",
+        "plant art", "leaf art", "dark botanical",
+    ],
+    "japanese-zen": [
+        "japanese", "torii", "bamboo", "koi", "ukiyo", "zen art", "zen mist",
+        "mount fuji", "japandi", "asian ink", "asian wall", "woodblock",
+        "cat moon", "black cat cherry", "chinese horse",
+    ],
+    "cosmic-dreams": [
+        "nebula", "galaxy", "aurora", "northern lights", "celestial", "lunar eclipse",
+        "solar system", "constellation", "zodiac", "night sky", "starry night",
+        "sun moon", "moon phases", "cosmic", "space poster", "astronomy",
+    ],
+    "nature-landscapes": [
+        "landscape", "mountain", "desert", "wheat field", "misty forest",
+        "misty mountain", "ocean sunset", "lake", "tuscany", "countryside",
+        "dunes", "sunrise", "golden hour", "beach wall", "library", "dark academia",
+    ],
+    "modern-abstract": [
+        "abstract", "geometric", "gradient", "wave art", "stripes", "mandala",
+        "modern arch", "marble", "flowing lines", "diagonal lines", "circle art",
+        "mid century", "valentine", "fire horse", "flaming stallion",
+    ],
+    "neon-nights": [
+        "cyberpunk", "vaporwave", "neon geometric", "neon city", "neon palm",
+        "synthwave", "retro neon",
+    ],
+}
+
+
+def get_collection_slug(name: str, tags: list[str] | None = None) -> str | None:
+    """Determine the DovShop collection slug for a product.
+
+    Matches product name and tags against keyword dictionaries.
+    Returns the first matching collection slug, or None.
+    """
+    search_text = name.lower()
+    if tags:
+        search_text += " " + " ".join(t.lower() for t in tags)
+
+    for slug, keywords in COLLECTION_KEYWORDS.items():
+        for kw in keywords:
+            if kw in search_text:
+                return slug
+    return None
