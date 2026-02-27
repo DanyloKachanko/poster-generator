@@ -396,6 +396,12 @@ async def sync_all_to_dovshop(req: Request):
 
             size_prices = await _get_variant_prices(product.get("printify_product_id", ""))
 
+            # Generate price range from variant prices
+            price_range = None
+            if size_prices:
+                prices = list(size_prices.values())
+                price_range = f"${min(prices):.2f} - ${max(prices):.2f}"
+
             title = product.get("title", "")
             collection_slug = get_collection_slug(title, tags)
 
@@ -413,6 +419,7 @@ async def sync_all_to_dovshop(req: Request):
                 "categories": categories,
                 "collection_slug": collection_slug,
                 "size_prices": size_prices,
+                "price_range": price_range,
             })
 
         # Send to DovShop
