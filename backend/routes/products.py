@@ -126,6 +126,42 @@ async def get_product(printify_product_id: str):
 # Source image linking
 # ------------------------------------------------------------------
 
+class UpdateProductRequest(BaseModel):
+    status: Optional[str] = None
+    etsy_listing_id: Optional[str] = None
+
+
+@router.patch("/products/{product_id}")
+async def update_product(product_id: int, request: UpdateProductRequest):
+    """Update product status or etsy_listing_id by internal DB id."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        product = await conn.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        updates = []
+        params = []
+        idx = 1
+        if request.status is not None:
+            updates.append(f"status = ${idx}")
+            params.append(request.status)
+            idx += 1
+        if request.etsy_listing_id is not None:
+            updates.append(f"etsy_listing_id = ${idx}")
+            params.append(request.etsy_listing_id)
+            idx += 1
+
+        if not updates:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        updates.append(f"updated_at = NOW()")
+        params.append(product_id)
+        query = f"UPDATE products SET {', '.join(updates)} WHERE id = ${idx} RETURNING *"
+        row = await conn.fetchrow(query, *params)
+        return dict(row)
+
+
 class LinkImageRequest(BaseModel):
     image_id: int
 
