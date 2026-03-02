@@ -153,10 +153,10 @@ async def get_all_products(
             )
         else:
             rows = await conn.fetch(
-                "SELECT * FROM products ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                "SELECT * FROM products WHERE status != 'archived' ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit, offset,
             )
-            total = await conn.fetchval("SELECT COUNT(*) FROM products")
+            total = await conn.fetchval("SELECT COUNT(*) FROM products WHERE status != 'archived'")
 
         return {
             "items": [dict(r) for r in rows],
