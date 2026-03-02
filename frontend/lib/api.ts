@@ -3036,3 +3036,33 @@ export async function validateTagsEtsy(tags: string[]): Promise<ValidateTagsEtsy
   }
   return response.json();
 }
+
+// === DovShop Analytics ===
+
+export interface DovShopAnalytics {
+  period: string;
+  totals: {
+    pageViews: number;
+    uniqueVisitors: number;
+    etsyClicks: number;
+    ctr: number;
+    avgTimeOnPage: number;
+  };
+  daily: { date: string; pageViews: number; etsyClicks: number; uniqueVisitors: number }[];
+  topPosters: { posterId: number; slug: string; name: string; views: number; etsyClicks: number; ctr: number }[];
+  topReferrers: { source: string; visits: number }[];
+  devices: { mobile: number; desktop: number; tablet: number };
+  scrollDepth: Record<string, number>;
+}
+
+export async function getDovShopAnalytics(days: number = 7): Promise<DovShopAnalytics> {
+  const res = await apiFetch(`${getApiUrl()}/dovshop/analytics?days=${days}`);
+  if (!res.ok) throw new Error('Failed to fetch DovShop analytics');
+  return res.json();
+}
+
+export async function syncDovShopAnalytics(): Promise<{ status: string; period: string; pageViews: number }> {
+  const res = await apiFetch(`${getApiUrl()}/dovshop/analytics/sync`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to sync DovShop analytics');
+  return res.json();
+}
