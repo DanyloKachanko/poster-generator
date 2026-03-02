@@ -30,6 +30,7 @@ from routes.competitors import router as competitors_router
 from routes.products import router as products_router
 from routes.custom_presets import router as custom_presets_router
 from routes.dovshop import router as dovshop_router
+from routes.dovshop_analytics import router as dovshop_analytics_router
 from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 from routes.strategy import router as strategy_router
@@ -120,6 +121,7 @@ app.include_router(competitors_router)
 app.include_router(products_router)
 app.include_router(custom_presets_router)
 app.include_router(dovshop_router)
+app.include_router(dovshop_analytics_router)
 app.include_router(sync_router)
 app.include_router(sync_ui_router)
 app.include_router(strategy_router)
