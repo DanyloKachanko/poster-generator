@@ -380,9 +380,9 @@ async def sync_all_to_dovshop(req: Request):
             base_url = _get_base_url(req)
             images = await _get_mockup_images(pool, product.get("source_image_id"), base_url)
 
-            # Fallback to original image
-            if not images and product.get("image_url"):
-                images.append(product["image_url"])
+            # Skip products without mockups — don't show raw AI images on DovShop
+            if not images:
+                continue
 
             etsy_listing_id = product.get("etsy_listing_id")
             etsy_url = f"https://www.etsy.com/listing/{etsy_listing_id}" if etsy_listing_id else None
