@@ -109,6 +109,22 @@ STYLE_PRESETS = {
             "koi": {
                 "name": "Koi Fish",
                 "prompt": f"Single koi fish, ink wash style, circular composition, minimalist Japanese art, black and gold, zen aesthetic{PROMPT_SUFFIX}"
+            },
+            "pagoda": {
+                "name": "Pagoda",
+                "prompt": f"Japanese pagoda silhouette in morning mist, layered mountains background, soft grey and rose tones, minimalist zen art, modern poster{PROMPT_SUFFIX}"
+            },
+            "crane": {
+                "name": "Paper Crane",
+                "prompt": f"Origami paper crane, delicate fold details, soft white and gold, minimalist Japanese art, clean composition, modern poster{PROMPT_SUFFIX}"
+            },
+            "bridge": {
+                "name": "Moon Bridge",
+                "prompt": f"Japanese garden moon bridge over calm pond, reflection in water, muted teal and cream tones, minimalist zen art{PROMPT_SUFFIX}"
+            },
+            "ink_circle": {
+                "name": "Enso Circle",
+                "prompt": f"Ink brush enso circle, imperfect brushstroke on cream paper, wabi-sabi aesthetic, minimalist zen art, meditative poster{PROMPT_SUFFIX}"
             }
         }
     },
@@ -146,6 +162,22 @@ STYLE_PRESETS = {
             "olive": {
                 "name": "Olive Branch",
                 "prompt": f"Olive branch illustration, Mediterranean style, muted green and cream, minimalist botanical art, elegant composition{PROMPT_SUFFIX}"
+            },
+            "mushroom": {
+                "name": "Wild Mushroom",
+                "prompt": f"Forest mushroom cluster illustration, warm brown and cream tones, vintage botanical study style, detailed minimalist poster art{PROMPT_SUFFIX}"
+            },
+            "lavender": {
+                "name": "Lavender Sprig",
+                "prompt": f"Dried lavender sprig, soft purple on cream background, delicate botanical illustration, Provence style, minimalist poster art{PROMPT_SUFFIX}"
+            },
+            "peony": {
+                "name": "Peony Bloom",
+                "prompt": f"Single peony bloom, soft pink watercolor, detailed petals, elegant botanical illustration, light cream background, wall art poster{PROMPT_SUFFIX}"
+            },
+            "herb_garden": {
+                "name": "Kitchen Herbs",
+                "prompt": f"Rosemary thyme sage herb illustration, green line art on cream, kitchen botanical art, labeled stems, clean poster design{PROMPT_SUFFIX}"
             }
         }
     },
@@ -179,6 +211,22 @@ STYLE_PRESETS = {
             "gradient": {
                 "name": "Gradient Orb",
                 "prompt": f"Smooth gradient orb, sunset colors, soft abstract art, modern minimalist poster, warm tones{PROMPT_SUFFIX}"
+            },
+            "terrazzo": {
+                "name": "Terrazzo Pattern",
+                "prompt": f"Abstract terrazzo pattern, warm neutral stone fragments on cream, modern material texture art, minimalist poster design{PROMPT_SUFFIX}"
+            },
+            "brushstroke": {
+                "name": "Bold Brushstroke",
+                "prompt": f"Single bold brushstroke, expressive gestural mark, earth tone on white, abstract expressionist minimalist poster art{PROMPT_SUFFIX}"
+            },
+            "wave_pattern": {
+                "name": "Topographic Waves",
+                "prompt": f"Topographic contour lines, flowing wave pattern, single color on cream, abstract minimalist map art, modern poster{PROMPT_SUFFIX}"
+            },
+            "splatter": {
+                "name": "Ink Splatter",
+                "prompt": f"Abstract ink splatter composition, controlled chaos, black and gold on white, dynamic minimalist art, modern poster{PROMPT_SUFFIX}"
             }
         }
     },
@@ -212,6 +260,22 @@ STYLE_PRESETS = {
             "planets": {
                 "name": "Solar System",
                 "prompt": f"Solar system planets in line, pastel colors, minimalist astronomical art, modern poster design{PROMPT_SUFFIX}"
+            },
+            "zodiac": {
+                "name": "Zodiac Wheel",
+                "prompt": f"Minimalist zodiac wheel illustration, fine gold lines on deep navy, astrological art, celestial poster design{PROMPT_SUFFIX}"
+            },
+            "comet": {
+                "name": "Shooting Comet",
+                "prompt": f"Single comet with trailing tail, sweeping arc across dark sky, gold and deep blue, minimalist celestial art{PROMPT_SUFFIX}"
+            },
+            "crescent": {
+                "name": "Crescent Moon",
+                "prompt": f"Delicate crescent moon with botanical elements, fine line art, gold on navy blue, mystical celestial poster{PROMPT_SUFFIX}"
+            },
+            "galaxy": {
+                "name": "Spiral Galaxy",
+                "prompt": f"Spiral galaxy from above, soft purple blue and pink nebula colors, cosmic watercolor style, minimalist space poster{PROMPT_SUFFIX}"
             }
         }
     },
@@ -245,6 +309,162 @@ STYLE_PRESETS = {
             "aurora": {
                 "name": "Northern Lights",
                 "prompt": f"Northern lights aurora borealis, snowy landscape silhouette, green and purple sky, minimalist art{PROMPT_SUFFIX}"
+            },
+            "canyon": {
+                "name": "Red Canyon",
+                "prompt": f"Layered red canyon walls, warm terracotta and orange gradient, dramatic rock formations, minimalist landscape poster{PROMPT_SUFFIX}"
+            },
+            "waterfall": {
+                "name": "Hidden Waterfall",
+                "prompt": f"Tall waterfall in lush green valley, misty spray, minimalist landscape art, blue and emerald tones, serene poster{PROMPT_SUFFIX}"
+            },
+            "meadow": {
+                "name": "Wildflower Meadow",
+                "prompt": f"Rolling wildflower meadow at golden hour, soft pastel blooms, gentle hills, minimalist landscape art, warm tones{PROMPT_SUFFIX}"
+            },
+            "volcano": {
+                "name": "Distant Volcano",
+                "prompt": f"Distant volcano silhouette at dusk, soft orange glow, layered atmosphere, minimalist landscape poster, dramatic sky{PROMPT_SUFFIX}"
+            }
+        }
+    },
+    "animal": {
+        "name": "Animal",
+        "presets": {
+            "bear": {
+                "name": "Forest Bear",
+                "prompt": f"Brown bear portrait in forest setting, soft natural light, detailed fur texture, wildlife art, warm earth tones, modern poster{PROMPT_SUFFIX}"
+            },
+            "whale": {
+                "name": "Blue Whale",
+                "prompt": f"Blue whale diving deep ocean, underwater light rays, deep blue gradient, majestic marine life art, minimalist poster{PROMPT_SUFFIX}"
+            },
+            "deer": {
+                "name": "Stag Portrait",
+                "prompt": f"Deer stag with antlers, misty forest background, golden morning light, noble wildlife portrait, modern poster art{PROMPT_SUFFIX}"
+            },
+            "eagle": {
+                "name": "Soaring Eagle",
+                "prompt": f"Eagle in flight, spread wings, mountain backdrop, dramatic sky, wildlife art, brown and gold tones, modern poster{PROMPT_SUFFIX}"
+            },
+            "fox": {
+                "name": "Red Fox",
+                "prompt": f"Red fox portrait, autumn forest background, warm orange and brown tones, detailed wildlife art, modern poster design{PROMPT_SUFFIX}"
+            },
+            "butterfly": {
+                "name": "Monarch Butterfly",
+                "prompt": f"Monarch butterfly on wildflower, delicate wing detail, soft bokeh background, orange and black, nature art poster{PROMPT_SUFFIX}"
+            },
+            "heron": {
+                "name": "Great Heron",
+                "prompt": f"Great blue heron standing in still water, reflection, misty morning, elegant wildlife art, blue and grey tones, poster{PROMPT_SUFFIX}"
+            },
+            "octopus": {
+                "name": "Octopus",
+                "prompt": f"Octopus with flowing tentacles, deep ocean blue, vintage scientific illustration style, marine life art, modern poster{PROMPT_SUFFIX}"
+            }
+        }
+    },
+    "minimalist": {
+        "name": "Minimalist",
+        "presets": {
+            "face": {
+                "name": "Line Face",
+                "prompt": f"Single continuous line drawing of a face, elegant minimal portrait, black line on white, modern art poster{PROMPT_SUFFIX}"
+            },
+            "body": {
+                "name": "Figure Study",
+                "prompt": f"Minimalist figure study, single flowing line, feminine silhouette, warm beige tones, modern art poster{PROMPT_SUFFIX}"
+            },
+            "hands": {
+                "name": "Reaching Hands",
+                "prompt": f"Two hands reaching toward each other, fine line art, Michelangelo inspired minimalist, cream background, poster art{PROMPT_SUFFIX}"
+            },
+            "vase": {
+                "name": "Simple Vase",
+                "prompt": f"Simple ceramic vase silhouette, neutral earth tones, clean shadow, minimalist still life, modern poster art{PROMPT_SUFFIX}"
+            },
+            "horizon": {
+                "name": "Color Horizon",
+                "prompt": f"Two-tone color field, horizontal split, complementary muted tones, Rothko inspired minimalist art poster{PROMPT_SUFFIX}"
+            },
+            "arch_window": {
+                "name": "Arch Window",
+                "prompt": f"Mediterranean arch window view, soft light streaming in, warm terracotta and blue sky, minimalist architecture poster{PROMPT_SUFFIX}"
+            },
+            "stairs": {
+                "name": "Geometric Stairs",
+                "prompt": f"Abstract geometric staircase, impossible architecture, clean lines, light and shadow, minimalist modern poster{PROMPT_SUFFIX}"
+            }
+        }
+    },
+    "vintage": {
+        "name": "Vintage",
+        "presets": {
+            "travel": {
+                "name": "Travel Poster",
+                "prompt": f"Vintage travel poster style, European coastal town, retro color palette, bold graphic design, art deco typography feel{PROMPT_SUFFIX}"
+            },
+            "botanical_plate": {
+                "name": "Botanical Plate",
+                "prompt": f"Vintage botanical illustration plate, detailed flower study, aged parchment background, scientific art style, classic poster{PROMPT_SUFFIX}"
+            },
+            "map": {
+                "name": "Antique Map",
+                "prompt": f"Antique style map illustration, compass rose, warm sepia tones, aged paper texture, vintage cartography art poster{PROMPT_SUFFIX}"
+            },
+            "astronomy": {
+                "name": "Astronomy Chart",
+                "prompt": f"Vintage astronomy chart, star map with constellation lines, deep blue with gold details, antique scientific poster art{PROMPT_SUFFIX}"
+            },
+            "art_deco": {
+                "name": "Art Deco",
+                "prompt": f"Art Deco geometric pattern, gold and navy, symmetrical design, 1920s inspired, luxurious vintage poster art{PROMPT_SUFFIX}"
+            },
+            "still_life": {
+                "name": "Still Life",
+                "prompt": f"Classical still life painting style, fruit and flowers, Dutch master inspired, rich warm tones, vintage art poster{PROMPT_SUFFIX}"
+            },
+            "camera": {
+                "name": "Vintage Camera",
+                "prompt": f"Vintage film camera illustration, retro design, warm sepia and brown tones, technical drawing style, nostalgic poster art{PROMPT_SUFFIX}"
+            }
+        }
+    },
+    "coastal": {
+        "name": "Coastal",
+        "presets": {
+            "waves": {
+                "name": "Ocean Waves",
+                "prompt": f"Crashing ocean waves, aerial view, turquoise and white foam, coastal photography style, serene beach poster art{PROMPT_SUFFIX}"
+            },
+            "shells": {
+                "name": "Sea Shells",
+                "prompt": f"Collection of sea shells on sandy beach, soft pastel tones, natural arrangement, coastal still life, minimalist poster{PROMPT_SUFFIX}"
+            },
+            "lighthouse": {
+                "name": "Lighthouse",
+                "prompt": f"Coastal lighthouse on rocky cliff, dramatic sky, navy and white, maritime art, minimalist coastal poster{PROMPT_SUFFIX}"
+            },
+            "driftwood": {
+                "name": "Driftwood",
+                "prompt": f"Weathered driftwood on empty beach, soft morning light, muted grey and sand tones, minimalist coastal art poster{PROMPT_SUFFIX}"
+            },
+            "coral": {
+                "name": "Coral Reef",
+                "prompt": f"Coral reef illustration, warm pink and orange tones, underwater botanical style, marine life art, coastal poster{PROMPT_SUFFIX}"
+            },
+            "sailboat": {
+                "name": "Sailboat",
+                "prompt": f"Single sailboat on calm sea, soft horizon, blue and white minimalist, coastal seascape art, modern poster{PROMPT_SUFFIX}"
+            },
+            "tide_pool": {
+                "name": "Tide Pool",
+                "prompt": f"Tide pool from above, clear water over colorful stones, soft natural light, coastal nature art, minimalist poster{PROMPT_SUFFIX}"
+            },
+            "palm_sunset": {
+                "name": "Palm Sunset",
+                "prompt": f"Palm tree silhouettes at sunset, warm orange and purple gradient sky, tropical coastal scene, modern poster art{PROMPT_SUFFIX}"
             }
         }
     }

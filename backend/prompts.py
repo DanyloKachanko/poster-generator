@@ -280,6 +280,16 @@ STYLE_KEYWORDS = {
         "occasions": ["birthday", "baby shower", "christmas", "pet memorial", "back to school"],
         "colors": ["warm brown", "golden", "black", "white", "forest green", "ocean blue"],
     },
+    "coastal": {
+        "primary": ["coastal wall art", "beach poster", "ocean print", "nautical decor"],
+        "secondary": ["seaside art", "marine print", "beach house art", "surf wall decor"],
+        "buyer_intent": ["beach lover gift", "coastal home", "vacation home art", "nautical gift"],
+        "aesthetics": ["hamptons style", "coastal farmhouse", "tropical decor", "nautical minimal"],
+        "emotions": ["relaxing", "breezy", "refreshing", "serene", "nostalgic"],
+        "rooms": ["living room", "bathroom", "bedroom", "beach house", "patio"],
+        "occasions": ["housewarming", "birthday", "retirement", "summer decor", "christmas"],
+        "colors": ["ocean blue", "sandy beige", "seafoam", "white", "coral", "navy"],
+    },
 }
 
 

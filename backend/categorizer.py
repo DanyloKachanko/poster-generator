@@ -33,6 +33,26 @@ STYLE_CATEGORIES = {
         "waterfall", "valley", "cliff", "field", "dune", "mist",
         "tuscany", "rolling hills",
     ],
+    "animal": [
+        "animal", "wildlife", "bear", "whale", "deer", "eagle",
+        "fox", "butterfly", "heron", "octopus", "bird", "fish",
+        "horse", "wolf", "owl", "safari", "marine life",
+    ],
+    "minimalist": [
+        "minimalist", "line art", "one line", "simple", "figure",
+        "silhouette", "single line", "contour", "vase", "arch window",
+        "staircase", "clean lines",
+    ],
+    "vintage": [
+        "vintage", "retro", "antique", "art deco", "nostalgic",
+        "old world", "classic", "victorian", "sepia", "1920s",
+        "botanical plate", "travel poster", "film camera",
+    ],
+    "coastal": [
+        "coastal", "beach", "ocean", "nautical", "seaside",
+        "lighthouse", "sailboat", "shell", "coral", "driftwood",
+        "tide pool", "surf", "maritime", "palm sunset", "tropical",
+    ],
 }
 
 # Room category keywords — slug → list of trigger words
@@ -62,6 +82,15 @@ _ROOM_SLUG_MAP = {
     "hallway": "hallway",
     "meditation space": "meditation-space",
     "cabin": "living-room",
+    "beach house": "living-room",
+    "patio": "living-room",
+    "den": "living-room",
+    "library": "office",
+    "study": "office",
+    "studio": "office",
+    "entryway": "hallway",
+    "teen room": "bedroom",
+    "kids room": "nursery",
 }
 
 
@@ -136,6 +165,21 @@ COLLECTION_KEYWORDS = {
     "neon-nights": [
         "cyberpunk", "vaporwave", "neon geometric", "neon city", "neon palm",
         "synthwave", "retro neon",
+    ],
+    "wildlife-kingdom": [
+        "bear", "whale", "deer", "eagle", "fox", "butterfly", "heron",
+        "octopus", "animal", "wildlife", "bird", "marine life", "safari",
+        "wolf", "owl", "stag", "forest animal",
+    ],
+    "coastal-living": [
+        "coastal", "beach", "lighthouse", "sailboat", "shell", "coral",
+        "driftwood", "tide pool", "ocean wave", "palm sunset", "nautical",
+        "seaside", "surf art", "maritime", "tropical coast",
+    ],
+    "vintage-classics": [
+        "vintage", "retro", "antique", "art deco", "travel poster",
+        "botanical plate", "antique map", "astronomy chart", "film camera",
+        "old world", "victorian", "sepia", "still life", "classic art",
     ],
 }
 
