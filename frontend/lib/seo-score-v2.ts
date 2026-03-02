@@ -1,15 +1,15 @@
 /**
- * SEO Scoring V2 — market-validated scoring
+ * SEO Scoring V3 — Etsy Keywords 101 (March 2026) compliant
  *
- * Key changes from V1:
- * - Title: 35 pts (was 30) — #1 Etsy ranking factor
- * - Tags: 35 pts (was 30) — #2 ranking factor, now includes search volume
- * - Description: 15 pts (was 25) — NOT indexed by Etsy internal search
- * - Metadata: 5 pts (was 15) — minimal ranking impact
- * - Market Fit: 10 pts (NEW) — autocomplete validation
+ * Key changes from V2:
+ * - Title: 30 pts (was 35) — Etsy moved to holistic ranking
+ * - Tags: 30 pts (was 35) — quality > quantity, 7 tag types required
+ * - Description: 20 pts (was 15) — NOW INDEXED by Etsy for search
+ * - Attributes: 10 pts (was 5) — act as free tag slots
+ * - Market Fit: 10 pts (unchanged)
  *
  * Works in two modes:
- * - Offline: max 77 pts (no API call)
+ * - Offline: max 73 pts (no API call)
  * - Online: max 100 pts (with autocomplete data)
  */
 
@@ -39,39 +39,45 @@ export interface SeoIssueV2 {
 }
 
 export interface TitleScore {
-  length: number;          // 7 pts
-  skAtStart: number;       // 8 pts
+  length: number;          // 6 pts
+  skAtStart: number;       // 7 pts
   pipeStructure: number;   // 4 pts
   noRepeatedWords: number; // 4 pts
-  noFillerWords: number;   // 5 pts
-  highVolumeTerms: number; // 7 pts (online only)
-  total: number;           // max 35
+  noFillerWords: number;   // 4 pts
+  highVolumeTerms: number; // 5 pts (online only)
+  total: number;           // max 30
 }
 
 export interface TagsScore {
-  count: number;             // 4 pts
+  count: number;             // 3 pts
   formatValid: number;       // 3 pts
-  multiWord: number;         // 4 pts
-  noWastedTags: number;      // 5 pts
-  searchVolume: number;      // 10 pts (online only)
-  categoryDiversity: number; // 6 pts
-  noStuffingOrDups: number;  // 3 pts
-  total: number;             // max 35
+  multiWord: number;         // 3 pts
+  noWastedTags: number;      // 4 pts
+  searchVolume: number;      // 8 pts (online only)
+  categoryDiversity: number; // 5 pts
+  noStuffingOrDups: number;  // 2 pts
+  hasSizeTag: number;        // 1 pt (V3 new)
+  hasMaterialTag: number;    // 1 pt (V3 new)
+  total: number;             // max 30
 }
 
 export interface DescriptionScore {
   length: number;             // 3 pts
   skInFirst160: number;       // 5 pts
   tagsWovenIn: number;        // 4 pts
-  structuredSections: number; // 3 pts
-  total: number;              // max 15
+  structuredSections: number; // 2 pts
+  noBannedPhrases: number;    // 3 pts (V3 new)
+  hasRoomKeywords: number;    // 2 pts (V3 new)
+  hasOccasionKeywords: number; // 1 pt (V3 new)
+  total: number;              // max 20
 }
 
 export interface MetadataScore {
-  materialsFilled: number; // 2 pts
-  colorsFilled: number;    // 2 pts
-  altTexts: number;        // 1 pt
-  total: number;           // max 5
+  materialsFilled: number;   // 3 pts
+  colorsFilled: number;      // 3 pts
+  altTexts: number;          // 2 pts
+  shopSection: number;       // 2 pts
+  total: number;             // max 10
 }
 
 export interface MarketFitScore {
@@ -83,7 +89,7 @@ export interface MarketFitScore {
 
 export interface SEOScoreResultV2 {
   total: number;
-  max: number;        // 77 offline, 100 online
+  max: number;        // 73 offline, 100 online
   grade: Grade;
   isOnline: boolean;
   sections: {
@@ -117,8 +123,16 @@ const ROOM_WORDS = ['bedroom', 'living room', 'office', 'bathroom', 'kitchen', '
 const OCCASION_WORDS = ['christmas', 'birthday', 'housewarming', 'anniversary', 'valentine', 'mother', 'father', 'wedding', 'baby shower', 'easter', 'halloween', 'thanksgiving', 'new year', 'retirement'];
 const AESTHETIC_WORDS = ['minimalist', 'boho', 'japandi', 'cottagecore', 'mid century', 'scandinavian', 'nordic', 'vintage', 'retro', 'modern', 'contemporary', 'dark academia', 'wabi sabi', 'art deco', 'farmhouse'];
 const TECHNIQUE_WORDS = ['watercolor', 'ink', 'oil painting', 'drawing', 'photography', 'illustration', 'sketch', 'print style', 'digital', 'acrylic', 'pastel', 'charcoal', 'woodblock', 'ukiyo'];
+const SIZE_WORDS = ['large', 'small', 'oversized', 'big', 'mini', 'tall', 'wide'];
+const MATERIAL_WORDS = ['matte', 'paper', 'archival', 'canvas', 'glossy', 'museum', 'premium'];
 
-type TagCategory = 'core' | 'buyer_intent' | 'style' | 'room' | 'occasion' | 'niche';
+const BANNED_DESC_PHRASES = [
+  'transform your space', 'elevate', 'stunning', 'perfect addition',
+  'captivating', 'add a touch of', 'breathtaking', 'magnificent',
+  'statement piece', 'bring nature indoors',
+];
+
+type TagCategory = 'core' | 'buyer_intent' | 'style' | 'room' | 'occasion' | 'niche' | 'size' | 'material';
 
 // --- Helpers ---
 
@@ -131,6 +145,8 @@ function classifyTag(tag: string, skWords: string[]): TagCategory[] {
   if (ROOM_WORDS.some(w => lower.includes(w))) categories.push('room');
   if (OCCASION_WORDS.some(w => lower.includes(w))) categories.push('occasion');
   if (AESTHETIC_WORDS.some(w => lower.includes(w)) || TECHNIQUE_WORDS.some(w => lower.includes(w))) categories.push('style');
+  if (SIZE_WORDS.some(w => lower.includes(w))) categories.push('size');
+  if (MATERIAL_WORDS.some(w => lower.includes(w))) categories.push('material');
   if (categories.length === 0) categories.push('niche');
 
   return categories;
@@ -198,6 +214,7 @@ export function calculateSEOScoreV2(
   colors?: { primary?: string; secondary?: string },
   altTexts?: string[],
   autocompleteData?: AutocompleteData,
+  shopSectionId?: number | null,
 ): SEOScoreResultV2 {
   const issues: SeoIssueV2[] = [];
   const suggestions: string[] = [];
@@ -205,7 +222,7 @@ export function calculateSEOScoreV2(
   const skWords = sk.toLowerCase().split(/\s+/).filter(w => w.length > 2);
   const isOnline = !!autocompleteData;
 
-  // ============ TITLE (max 35 pts) ============
+  // ============ TITLE (max 30 pts) ============
   const titleResult: TitleScore = { length: 0, skAtStart: 0, pipeStructure: 0, noRepeatedWords: 0, noFillerWords: 0, highVolumeTerms: 0, total: 0 };
 
   if (!title) {
@@ -213,45 +230,47 @@ export function calculateSEOScoreV2(
   } else {
     const len = title.length;
 
-    // Length (7 pts)
-    if (len >= 50 && len <= 80) {
-      titleResult.length = 7;
-    } else if ((len >= 40 && len < 50) || (len > 80 && len <= 100)) {
+    // Length (6 pts) — ideal 40-70
+    if (len >= 40 && len <= 70) {
+      titleResult.length = 6;
+    } else if ((len >= 30 && len < 40) || (len > 70 && len <= 80)) {
       titleResult.length = 4;
-      issues.push({ type: 'warning', area: 'title', message: `Title ${len} chars — ideal is 50-80` });
-    } else if (len < 40 || (len > 100 && len <= 140)) {
+      issues.push({ type: 'warning', area: 'title', message: `Title ${len} chars — ideal is 40-70` });
+    } else if (len < 30 || (len > 80 && len <= 140)) {
       titleResult.length = 2;
-      issues.push({ type: 'warning', area: 'title', message: `Title ${len < 40 ? 'too short' : 'too long'} (${len} chars)` });
+      issues.push({ type: 'warning', area: 'title', message: `Title ${len < 30 ? 'too short' : 'too long'} (${len} chars)` });
     } else {
       issues.push({ type: 'error', area: 'title', message: `Title exceeds 140 chars (${len})` });
     }
 
-    // SK at start (8 pts)
+    // SK at start (7 pts)
     if (sk) {
       const titleLower = title.toLowerCase();
       const skLower = sk.toLowerCase();
       if (titleLower.startsWith(skLower) || titleLower.startsWith(skLower.split(' ')[0])) {
-        titleResult.skAtStart = 8;
+        titleResult.skAtStart = 7;
       } else if (titleLower.includes(skLower)) {
-        titleResult.skAtStart = 4;
+        titleResult.skAtStart = 3;
         issues.push({ type: 'warning', area: 'title', message: 'SK in title but not at start — move it to front' });
       } else {
         issues.push({ type: 'error', area: 'title', message: 'Superstar Keyword missing from title' });
       }
     }
 
-    // Pipe structure (4 pts)
-    const sections = title.split('|').map(s => s.trim()).filter(Boolean);
+    // Pipe/colon structure (4 pts)
+    const hasPipes = title.includes('|');
+    const hasColon = title.includes(':');
+    const sections = title.split(/[|:]/).map(s => s.trim()).filter(Boolean);
     if (sections.length >= 2 && sections.length <= 3) {
       titleResult.pipeStructure = 4;
     } else {
       titleResult.pipeStructure = 2;
-      if (sections.length === 1) issues.push({ type: 'warning', area: 'title', message: 'No pipe separators — add | to structure title' });
+      if (sections.length === 1) issues.push({ type: 'warning', area: 'title', message: 'No separators — add | or : to structure title' });
       else issues.push({ type: 'warning', area: 'title', message: `${sections.length} sections — max 3` });
     }
 
     // No repeated words (4 pts)
-    const titleWords = title.toLowerCase().replace(/[|,]/g, ' ').split(/\s+/).filter(w => w.length > 3);
+    const titleWords = title.toLowerCase().replace(/[|:,]/g, ' ').split(/\s+/).filter(w => w.length > 3);
     const wordCounts: Record<string, number> = {};
     titleWords.forEach(w => { wordCounts[w] = (wordCounts[w] || 0) + 1; });
     const repeatedWords = Object.entries(wordCounts).filter(([, c]) => c > 1).map(([w]) => w);
@@ -264,10 +283,10 @@ export function calculateSEOScoreV2(
       issues.push({ type: 'error', area: 'title', message: `Repeated words: ${repeatedWords.join(', ')}` });
     }
 
-    // No filler words (5 pts)
+    // No filler words (4 pts)
     const fillerFound = TITLE_FILLER_WORDS.filter(f => title.toLowerCase().includes(f));
     if (fillerFound.length === 0) {
-      titleResult.noFillerWords = 5;
+      titleResult.noFillerWords = 4;
     } else if (fillerFound.length === 1) {
       titleResult.noFillerWords = 2;
       issues.push({ type: 'warning', area: 'title', message: `Filler word "${fillerFound[0]}" — be specific instead` });
@@ -275,15 +294,13 @@ export function calculateSEOScoreV2(
       issues.push({ type: 'error', area: 'title', message: `Filler words: ${fillerFound.join(', ')} — nobody searches these` });
     }
 
-    // High-volume terms (7 pts) — online only
+    // High-volume terms (5 pts) — online only
     if (autocompleteData) {
-      // Check if main title keywords appear in autocomplete
-      const titleKeywords = sections[0]?.toLowerCase().trim() || '';
       const skResult = autocompleteData.results.find(r => r.tag.toLowerCase() === sk.toLowerCase());
       if (skResult?.found) {
-        titleResult.highVolumeTerms = 7;
-      } else if (titleKeywords && autocompleteData.results.some(r => r.found && titleKeywords.includes(r.tag.toLowerCase()))) {
-        titleResult.highVolumeTerms = 4;
+        titleResult.highVolumeTerms = 5;
+      } else if (autocompleteData.results.some(r => r.found)) {
+        titleResult.highVolumeTerms = 2;
         issues.push({ type: 'warning', area: 'title', message: 'SK not in autocomplete — consider a higher-volume keyword' });
       } else {
         issues.push({ type: 'error', area: 'title', message: 'Title keywords not found in search autocomplete' });
@@ -292,19 +309,19 @@ export function calculateSEOScoreV2(
     }
   }
 
-  titleResult.total = Math.min(35, titleResult.length + titleResult.skAtStart + titleResult.pipeStructure + titleResult.noRepeatedWords + titleResult.noFillerWords + titleResult.highVolumeTerms);
+  titleResult.total = Math.min(30, titleResult.length + titleResult.skAtStart + titleResult.pipeStructure + titleResult.noRepeatedWords + titleResult.noFillerWords + titleResult.highVolumeTerms);
 
-  // ============ TAGS (max 35 pts) ============
-  const tagsResult: TagsScore = { count: 0, formatValid: 0, multiWord: 0, noWastedTags: 0, searchVolume: 0, categoryDiversity: 0, noStuffingOrDups: 0, total: 0 };
+  // ============ TAGS (max 30 pts) ============
+  const tagsResult: TagsScore = { count: 0, formatValid: 0, multiWord: 0, noWastedTags: 0, searchVolume: 0, categoryDiversity: 0, noStuffingOrDups: 0, hasSizeTag: 0, hasMaterialTag: 0, total: 0 };
 
   if (tags.length === 0) {
     issues.push({ type: 'error', area: 'tags', message: 'No tags' });
   } else {
-    // Count (4 pts)
+    // Count (3 pts)
     if (tags.length === 13) {
-      tagsResult.count = 4;
+      tagsResult.count = 3;
     } else {
-      tagsResult.count = Math.round((tags.length / 13) * 4);
+      tagsResult.count = Math.round((tags.length / 13) * 3);
       issues.push({ type: 'error', area: 'tags', message: `Only ${tags.length}/13 tags` });
     }
 
@@ -317,30 +334,30 @@ export function calculateSEOScoreV2(
       tagsResult.formatValid = 3;
     }
 
-    // Multi-word (4 pts)
+    // Multi-word (3 pts)
     const singleWordTags = tags.filter(t => t.trim().split(/\s+/).length === 1);
     if (singleWordTags.length === 0) {
-      tagsResult.multiWord = 4;
+      tagsResult.multiWord = 3;
     } else {
-      tagsResult.multiWord = Math.max(0, 4 - singleWordTags.length);
+      tagsResult.multiWord = Math.max(0, 3 - singleWordTags.length);
       issues.push({ type: 'warning', area: 'tags', message: `Single-word tags waste slots: ${singleWordTags.join(', ')}` });
       suggestions.push('Replace single-word tags with 2-3 word phrases buyers search');
     }
 
-    // No wasted tags (5 pts)
+    // No wasted tags (4 pts)
     const wastedTags = tags.filter(t => WASTED_STANDALONE_TAGS.includes(t.toLowerCase().trim()));
     if (wastedTags.length === 0) {
-      tagsResult.noWastedTags = 5;
+      tagsResult.noWastedTags = 4;
     } else {
-      tagsResult.noWastedTags = Math.max(0, 5 - wastedTags.length * 2);
+      tagsResult.noWastedTags = Math.max(0, 4 - wastedTags.length * 2);
       issues.push({ type: 'error', area: 'tags', message: `Wasted tags (already in Etsy category): ${wastedTags.join(', ')}` });
       suggestions.push(`Replace "${wastedTags[0]}" with a specific phrase like "japanese wall art"`);
     }
 
-    // Search volume (10 pts) — online only
+    // Search volume (8 pts) — online only
     if (autocompleteData) {
       const ratio = autocompleteData.found / Math.max(autocompleteData.total, 1);
-      tagsResult.searchVolume = Math.round(ratio * 10);
+      tagsResult.searchVolume = Math.round(ratio * 8);
 
       const notFound = autocompleteData.results.filter(r => !r.found);
       if (notFound.length > 0) {
@@ -354,53 +371,73 @@ export function calculateSEOScoreV2(
       }
     }
 
-    // Category diversity (6 pts)
+    // Category diversity (5 pts) — now checks 7+ categories
     const covered = new Set<TagCategory>();
     for (const tag of tags) {
       classifyTag(tag.toLowerCase(), skWords).forEach(c => covered.add(c));
     }
     const catCount = covered.size;
-    if (catCount >= 6) {
-      tagsResult.categoryDiversity = 6;
-    } else if (catCount >= 5) {
+    if (catCount >= 7) {
       tagsResult.categoryDiversity = 5;
-    } else if (catCount >= 4) {
+    } else if (catCount >= 6) {
       tagsResult.categoryDiversity = 4;
-      issues.push({ type: 'warning', area: 'tags', message: `${catCount}/6 intent categories — add more variety` });
+    } else if (catCount >= 5) {
+      tagsResult.categoryDiversity = 3;
+      issues.push({ type: 'warning', area: 'tags', message: `${catCount}/7 tag types covered — add more variety` });
     } else {
-      tagsResult.categoryDiversity = Math.max(1, catCount);
-      issues.push({ type: 'error', area: 'tags', message: `Only ${catCount}/6 buyer-intent categories covered` });
+      tagsResult.categoryDiversity = Math.max(1, catCount - 1);
+      issues.push({ type: 'error', area: 'tags', message: `Only ${catCount}/7 tag types covered` });
 
       const missing: string[] = [];
       if (!covered.has('room')) missing.push('room-specific (e.g., "bedroom wall art")');
       if (!covered.has('occasion')) missing.push('occasion (e.g., "housewarming gift")');
       if (!covered.has('buyer_intent')) missing.push('buyer intent (e.g., "gift for nature lover")');
       if (!covered.has('style')) missing.push('style (e.g., "japandi decor")');
+      if (!covered.has('size')) missing.push('size (e.g., "large wall poster")');
+      if (!covered.has('material')) missing.push('material (e.g., "matte paper print")');
       if (missing.length > 0) suggestions.push(`Add tags for: ${missing.join(', ')}`);
     }
 
-    // No stuffing or dups (3 pts)
+    // No stuffing or dups (2 pts)
     const rootWordCounts = getRootWords(tags);
     const stuffedWords = Array.from(rootWordCounts.entries()).filter(([, count]) => count > 3).map(([word]) => word);
     const lowerTags = tags.map(t => t.toLowerCase().trim());
     const dupes = lowerTags.filter((t, i) => lowerTags.indexOf(t) !== i);
 
     if (stuffedWords.length === 0 && dupes.length === 0) {
-      tagsResult.noStuffingOrDups = 3;
+      tagsResult.noStuffingOrDups = 2;
     } else {
       if (stuffedWords.length > 0) issues.push({ type: 'warning', area: 'tags', message: `Root word "${stuffedWords[0]}" in ${rootWordCounts.get(stuffedWords[0])} tags — max 3` });
       if (dupes.length > 0) issues.push({ type: 'error', area: 'tags', message: `Duplicate tags: ${Array.from(new Set(dupes)).join(', ')}` });
     }
+
+    // Has size tag (1 pt) — V3 new
+    const hasSizeTag = tags.some(t => SIZE_WORDS.some(sw => t.toLowerCase().includes(sw)));
+    if (hasSizeTag) {
+      tagsResult.hasSizeTag = 1;
+    } else {
+      issues.push({ type: 'warning', area: 'tags', message: 'No size tag — add "large wall poster" or "small art print"' });
+    }
+
+    // Has material tag (1 pt) — V3 new
+    const hasMaterialTag = tags.some(t => MATERIAL_WORDS.some(mw => t.toLowerCase().includes(mw)));
+    if (hasMaterialTag) {
+      tagsResult.hasMaterialTag = 1;
+    } else {
+      issues.push({ type: 'warning', area: 'tags', message: 'No material tag — add "matte paper print" or "archival ink art"' });
+    }
   }
 
-  tagsResult.total = Math.min(35, tagsResult.count + tagsResult.formatValid + tagsResult.multiWord + tagsResult.noWastedTags + tagsResult.searchVolume + tagsResult.categoryDiversity + tagsResult.noStuffingOrDups);
+  tagsResult.total = Math.min(30, tagsResult.count + tagsResult.formatValid + tagsResult.multiWord + tagsResult.noWastedTags + tagsResult.searchVolume + tagsResult.categoryDiversity + tagsResult.noStuffingOrDups + tagsResult.hasSizeTag + tagsResult.hasMaterialTag);
 
-  // ============ DESCRIPTION (max 15 pts) ============
-  const descResult: DescriptionScore = { length: 0, skInFirst160: 0, tagsWovenIn: 0, structuredSections: 0, total: 0 };
+  // ============ DESCRIPTION (max 20 pts) ============
+  const descResult: DescriptionScore = { length: 0, skInFirst160: 0, tagsWovenIn: 0, structuredSections: 0, noBannedPhrases: 0, hasRoomKeywords: 0, hasOccasionKeywords: 0, total: 0 };
 
   if (!description) {
     issues.push({ type: 'error', area: 'description', message: 'Description is empty' });
   } else {
+    const descLower = description.toLowerCase();
+
     // Length (3 pts)
     if (description.length >= 500) {
       descResult.length = 3;
@@ -411,58 +448,114 @@ export function calculateSEOScoreV2(
       issues.push({ type: 'error', area: 'description', message: `Only ${description.length} chars — too short` });
     }
 
-    // SK in first 160 chars (5 pts) — Google snippet
+    // SK in first 160 chars (5 pts) — Google + Etsy snippet
     const first160 = description.slice(0, 160).toLowerCase();
     if (sk && first160.includes(sk.toLowerCase())) {
       descResult.skInFirst160 = 5;
     } else {
-      issues.push({ type: 'error', area: 'description', message: 'SK missing from first 160 chars — critical for Google snippet' });
+      issues.push({ type: 'error', area: 'description', message: 'SK missing from first 160 chars — critical for Google + Etsy search' });
     }
 
-    // Tags woven in (4 pts)
-    const descLower = description.toLowerCase();
+    // Tags woven in (4 pts) — more important now that descriptions are indexed
     const tagKeywordsFound = tags.filter(t => t && descLower.includes(t.toLowerCase())).length;
-    if (tagKeywordsFound >= 8) {
+    if (tagKeywordsFound >= 10) {
       descResult.tagsWovenIn = 4;
-    } else if (tagKeywordsFound >= 5) {
+    } else if (tagKeywordsFound >= 8) {
       descResult.tagsWovenIn = 3;
-    } else if (tagKeywordsFound >= 3) {
+    } else if (tagKeywordsFound >= 5) {
       descResult.tagsWovenIn = 2;
-      issues.push({ type: 'warning', area: 'description', message: `Only ${tagKeywordsFound}/13 tags in description` });
+      issues.push({ type: 'warning', area: 'description', message: `Only ${tagKeywordsFound}/13 tags in description — aim for 8-10` });
     } else {
-      issues.push({ type: 'warning', area: 'description', message: `Only ${tagKeywordsFound}/13 tags in description` });
+      descResult.tagsWovenIn = 1;
+      issues.push({ type: 'warning', area: 'description', message: `Only ${tagKeywordsFound}/13 tags in description — Etsy now indexes descriptions` });
     }
 
-    // Structured sections (3 pts)
+    // Structured sections (2 pts)
     const hasPerfectFor = /PERFECT FOR/i.test(description);
     const hasPrintDetails = /PRINT DETAILS/i.test(description);
     if (hasPerfectFor && hasPrintDetails) {
-      descResult.structuredSections = 3;
-    } else if (hasPerfectFor || hasPrintDetails) {
       descResult.structuredSections = 2;
+    } else if (hasPerfectFor || hasPrintDetails) {
+      descResult.structuredSections = 1;
     } else {
       issues.push({ type: 'warning', area: 'description', message: 'Missing structured sections (PERFECT FOR, PRINT DETAILS)' });
     }
+
+    // No banned phrases (3 pts) — V3 new
+    const foundBanned = BANNED_DESC_PHRASES.filter(bp => descLower.includes(bp));
+    if (foundBanned.length === 0) {
+      descResult.noBannedPhrases = 3;
+    } else {
+      descResult.noBannedPhrases = Math.max(0, 3 - foundBanned.length);
+      issues.push({ type: 'error', area: 'description', message: `Banned phrases: ${foundBanned.map(b => `"${b}"`).join(', ')}` });
+    }
+
+    // Has room keywords (2 pts) — V3 new
+    const roomsFound = ROOM_WORDS.filter(rw => descLower.includes(rw));
+    if (roomsFound.length >= 2) {
+      descResult.hasRoomKeywords = 2;
+    } else if (roomsFound.length === 1) {
+      descResult.hasRoomKeywords = 1;
+      issues.push({ type: 'warning', area: 'description', message: 'Only 1 room keyword — add more (bedroom, living room, office)' });
+    } else {
+      issues.push({ type: 'warning', area: 'description', message: 'No room keywords in description — Etsy indexes these for search' });
+    }
+
+    // Has occasion keywords (1 pt) — V3 new
+    const occasionsFound = OCCASION_WORDS.filter(ow => descLower.includes(ow));
+    if (occasionsFound.length >= 1) {
+      descResult.hasOccasionKeywords = 1;
+    } else {
+      issues.push({ type: 'warning', area: 'description', message: 'No occasion keywords — add "housewarming", "birthday" etc.' });
+    }
   }
 
-  descResult.total = Math.min(15, descResult.length + descResult.skInFirst160 + descResult.tagsWovenIn + descResult.structuredSections);
+  descResult.total = Math.min(20, descResult.length + descResult.skInFirst160 + descResult.tagsWovenIn + descResult.structuredSections + descResult.noBannedPhrases + descResult.hasRoomKeywords + descResult.hasOccasionKeywords);
 
-  // ============ METADATA (max 5 pts) ============
-  const metaResult: MetadataScore = { materialsFilled: 0, colorsFilled: 0, altTexts: 0, total: 0 };
+  // ============ ATTRIBUTES (max 10 pts) — was METADATA (5 pts) ============
+  const metaResult: MetadataScore = { materialsFilled: 0, colorsFilled: 0, altTexts: 0, shopSection: 0, total: 0 };
 
-  if (materials.length > 0) metaResult.materialsFilled = 2;
-  else issues.push({ type: 'warning', area: 'metadata', message: 'No materials set' });
+  // Materials specificity (3 pts)
+  if (materials.length > 0) {
+    const hasSpecific = materials.some(m => m.length > 10);
+    if (hasSpecific) {
+      metaResult.materialsFilled = 3;
+    } else {
+      metaResult.materialsFilled = 1;
+      issues.push({ type: 'warning', area: 'metadata', message: 'Materials too generic — use specific terms like "Museum quality 250gsm matte paper"' });
+    }
+  } else {
+    issues.push({ type: 'warning', area: 'metadata', message: 'No materials set — free keyword slots wasted' });
+  }
 
+  // Colors (3 pts)
   const hasPrimary = colors?.primary && colors.primary.length > 0;
   const hasSecondary = colors?.secondary && colors.secondary.length > 0;
-  if (hasPrimary && hasSecondary) metaResult.colorsFilled = 2;
-  else if (hasPrimary || hasSecondary) metaResult.colorsFilled = 1;
-  else issues.push({ type: 'warning', area: 'metadata', message: 'No colors set' });
+  if (hasPrimary && hasSecondary) {
+    metaResult.colorsFilled = 3;
+  } else if (hasPrimary) {
+    metaResult.colorsFilled = 2;
+    issues.push({ type: 'warning', area: 'metadata', message: 'No secondary color — set for better filter visibility' });
+  } else {
+    issues.push({ type: 'warning', area: 'metadata', message: 'No colors set — buyers use color filters' });
+  }
 
+  // Alt texts (2 pts)
   const altCount = altTexts?.filter(a => a && a.trim().length > 0).length || 0;
-  if (altCount >= 3) metaResult.altTexts = 1;
+  if (altCount >= 5) {
+    metaResult.altTexts = 2;
+  } else if (altCount >= 3) {
+    metaResult.altTexts = 1;
+  }
 
-  metaResult.total = metaResult.materialsFilled + metaResult.colorsFilled + metaResult.altTexts;
+  // Shop section (2 pts)
+  if (shopSectionId) {
+    metaResult.shopSection = 2;
+  } else {
+    issues.push({ type: 'warning', area: 'metadata', message: 'No shop section assigned' });
+  }
+
+  metaResult.total = metaResult.materialsFilled + metaResult.colorsFilled + metaResult.altTexts + metaResult.shopSection;
 
   // ============ MARKET FIT (max 10 pts) — online only ============
   let marketFit: MarketFitScore | undefined;
@@ -495,7 +588,7 @@ export function calculateSEOScoreV2(
   }
 
   // ============ TOTAL ============
-  const max = isOnline ? 100 : 77;
+  const max = isOnline ? 100 : 73;
   const total = titleResult.total + tagsResult.total + descResult.total + metaResult.total + (marketFit?.total || 0);
   const grade = getGradeV2(total, max);
 
