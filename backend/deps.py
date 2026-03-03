@@ -5,19 +5,19 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-from leonardo import LeonardoAI
+from integrations.leonardo.client import LeonardoAI
 from export import PosterExporter
-from listing_generator import ListingGenerator
-from printify import PrintifyAPI
-from notifications import NotificationService
+from core.seo.generator import ListingGenerator
+from integrations.printify.client import PrintifyAPI
+from integrations.telegram.notifications import NotificationService
 from scheduler import PublishScheduler
-from etsy import EtsyAPI
+from integrations.etsy.client import EtsyAPI
 from batch import BatchManager
 from upscaler import UpscaleService
 from presets_manager import PresetsManager
-from dovshop_client import DovShopClient
-from telegram_bot import TelegramBot
-from etsy_sync import EtsySyncService
+from integrations.dovshop.client import DovShopClient
+from integrations.telegram.bot import TelegramBot
+from integrations.etsy.sync import EtsySyncService
 
 # Load .env from root directory (parent of backend/)
 root_env = Path(__file__).parent.parent / ".env"
@@ -37,12 +37,15 @@ exporter = PosterExporter(leonardo, output_dir="./exports")
 listing_gen = ListingGenerator(api_key=ANTHROPIC_API_KEY or "")
 printify = PrintifyAPI()
 notifier = NotificationService()
-publish_scheduler = PublishScheduler(printify, notifier)
 etsy = EtsyAPI()
 etsy_sync = EtsySyncService(etsy, printify)
-publish_scheduler.etsy = etsy
-publish_scheduler.listing_gen = listing_gen
-publish_scheduler.etsy_sync = etsy_sync
+publish_scheduler = PublishScheduler(
+    printify=printify,
+    notifier=notifier,
+    etsy=etsy,
+    listing_gen=listing_gen,
+    etsy_sync=etsy_sync,
+)
 batch_manager = BatchManager(notifier=notifier)
 upscale_service = UpscaleService()
 presets_manager = PresetsManager()

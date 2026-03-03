@@ -71,7 +71,7 @@ async def prepare_multidesign_images(
 
         try:
             cropped = fit_image_to_ratio(source_bytes, target_ratio)
-            resized = upscale_service.upscale_to_target(
+            resized = await upscale_service.upscale_to_target(
                 cropped, sa.target_width, sa.target_height,
             )
             upload = await printify.upload_image_base64(

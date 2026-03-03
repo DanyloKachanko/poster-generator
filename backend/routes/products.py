@@ -9,38 +9,14 @@ from printify import PrintifyAPI
 from deps import printify, etsy as etsy_service, listing_gen, publish_scheduler
 from routes.etsy_auth import ensure_etsy_token
 import database as db
+from core.products_service import import_printify_product
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["products"])
 
-
-async def _import_printify_product(p: dict) -> dict:
-    """Import a single Printify product into local DB. Returns saved product dict."""
-    pid = p["id"]
-    image_url = None
-    for img in p.get("images", []):
-        if img.get("is_default"):
-            image_url = img.get("src")
-            break
-    if not image_url and p.get("images"):
-        image_url = p["images"][0].get("src")
-
-    external = p.get("external") or {}
-    etsy_listing_id = str(external["id"]) if external.get("id") else None
-
-    product = await db.save_product(
-        printify_product_id=pid,
-        title=p.get("title", "Untitled"),
-        description=p.get("description", ""),
-        tags=p.get("tags", []),
-        image_url=image_url,
-        status="published" if etsy_listing_id else "draft",
-    )
-    if etsy_listing_id:
-        await db.update_product_status(pid, product["status"], etsy_listing_id)
-        product["etsy_listing_id"] = etsy_listing_id
-    return product
+# Backward-compat alias (old name had leading underscore)
+_import_printify_product = import_printify_product
 
 
 @router.post("/products/sync")

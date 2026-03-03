@@ -545,7 +545,7 @@ async def _create_per_size_design_groups(
         target_ratio = sa.target_width / sa.target_height
         try:
             cropped = fit_image_to_ratio(source_bytes, target_ratio)
-            resized = upscale_service.upscale_to_target(
+            resized = await upscale_service.upscale_to_target(
                 cropped, sa.target_width, sa.target_height,
             )
             upload = await printify.upload_image_base64(

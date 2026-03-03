@@ -1,5 +1,6 @@
 """Local upscaling using Real-ESRGAN for sizes > 20MP, with Pillow fallback."""
 
+import asyncio
 import subprocess
 import tempfile
 from pathlib import Path
@@ -55,12 +56,12 @@ def is_realesrgan_available() -> bool:
         return False
 
 
-def upscale_with_realesrgan(
+async def upscale_with_realesrgan(
     image_bytes: bytes,
     scale: int = 2,
     model: str = "realesrgan-x4plus",
 ) -> bytes:
-    """Upscale image using Real-ESRGAN CLI."""
+    """Upscale image using Real-ESRGAN CLI (async)."""
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = Path(tmpdir) / "input.png"
         output_path = Path(tmpdir) / "output.png"
@@ -76,10 +77,20 @@ def upscale_with_realesrgan(
             "-n", model,
         ]
 
-        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=300)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            raise TimeoutError("Real-ESRGAN process timed out after 300s")
 
-        if result.returncode != 0:
-            raise Exception(f"Real-ESRGAN failed: {result.stderr.decode()}")
+        if proc.returncode != 0:
+            raise Exception(f"Real-ESRGAN failed: {stderr.decode()}")
 
         with open(output_path, "rb") as f:
             return f.read()
@@ -117,7 +128,7 @@ class UpscaleService:
         img = Image.open(io.BytesIO(image_bytes))
         return img.size
 
-    def upscale_to_target(
+    async def upscale_to_target(
         self,
         image_bytes: bytes,
         target_width: int,
@@ -142,13 +153,13 @@ class UpscaleService:
 
         if self.has_realesrgan and factor > 1.5:
             # First Real-ESRGAN 2x pass
-            working = upscale_with_realesrgan(working, scale=2)
+            working = await upscale_with_realesrgan(working, scale=2)
 
             # Check if a second 2x pass is needed
             cur_w, cur_h = self.get_image_dimensions(working)
             remaining = max(target_width / cur_w, target_height / cur_h)
             if remaining > 1.5:
-                working = upscale_with_realesrgan(working, scale=2)
+                working = await upscale_with_realesrgan(working, scale=2)
 
         # Final precise resize
         return upscale_with_pillow(working, target_width, target_height)

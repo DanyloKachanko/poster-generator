@@ -507,7 +507,7 @@ class PublishScheduler:
                                 mockup_bytes = resp.content
                         mockup_entries.append((m["id"], mockup_bytes))
 
-                    from routes.mockup_utils import _upload_multi_images_to_etsy
+                    from core.mockups.compose import upload_multi_images_to_etsy as _upload_multi_images_to_etsy
                     upload_results = await _upload_multi_images_to_etsy(
                         access_token, shop_id, etsy_listing_id,
                         poster_url, mockup_entries,
@@ -547,7 +547,7 @@ class PublishScheduler:
                             if isinstance(t.get("corners"), str):
                                 t["corners"] = json_mod.loads(t["corners"])
 
-                        from routes.mockup_utils import _compose_all_templates, _upload_multi_images_to_etsy
+                        from core.mockups.compose import compose_all_templates as _compose_all_templates, upload_multi_images_to_etsy as _upload_multi_images_to_etsy
                         composed = await _compose_all_templates(poster_url, active_templates)
 
                         mockup_entries = []
@@ -716,7 +716,7 @@ class PublishScheduler:
         for orphan in orphans:
             pid = orphan["printify_product_id"]
             try:
-                from routes.products import _import_printify_product
+                from core.products_service import import_printify_product as _import_printify_product
                 p = await self.printify.get_product(pid)
                 await _import_printify_product(p)
                 logger.info("[catchup] Auto-imported orphan product %s (%s)", pid, orphan["title"][:40])
@@ -793,7 +793,7 @@ class PublishScheduler:
             return
         access_token, shop_id = token_data
 
-        from routes.mockup_utils import _compose_all_templates, _upload_multi_images_to_etsy
+        from core.mockups.compose import compose_all_templates as _compose_all_templates, upload_multi_images_to_etsy as _upload_multi_images_to_etsy
 
         for row in needs_mockups:
             pid = row["printify_product_id"]

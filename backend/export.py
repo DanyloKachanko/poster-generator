@@ -77,7 +77,7 @@ class PosterExporter:
         if max_needed > current_width * 1.5:
             if self.has_realesrgan:
                 progress("Upscaling with Real-ESRGAN for large sizes...", 50)
-                upscaled_bytes = upscale_with_realesrgan(upscaled_bytes, scale=2)
+                upscaled_bytes = await upscale_with_realesrgan(upscaled_bytes, scale=2)
                 upscaled_img = Image.open(io.BytesIO(upscaled_bytes))
                 current_width, current_height = upscaled_img.size
             else:
