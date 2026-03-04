@@ -125,6 +125,23 @@ class PublishScheduler:
             id="etsy_auto_sync",
             replace_existing=True,
         )
+        # Pinterest pin publishing — every 2 hours
+        self.scheduler.add_job(
+            self._auto_pinterest_publish,
+            "interval",
+            hours=2,
+            id="pinterest_publish",
+            replace_existing=True,
+        )
+        # Pinterest analytics sync — daily at 15:00 UTC
+        self.scheduler.add_job(
+            self._auto_pinterest_analytics,
+            "cron",
+            hour=15,
+            minute=0,
+            id="pinterest_analytics",
+            replace_existing=True,
+        )
         self.scheduler.start()
         logger.info(
             "Publish scheduler started (checking every %d min, slots: %s EST)",
@@ -1010,3 +1027,24 @@ class PublishScheduler:
             logger.info("Auto Etsy sync: %d views/favs, %d orders", views_count, orders_count)
         except Exception as e:
             logger.error("Auto Etsy sync failed: %s", e)
+
+    async def _auto_pinterest_publish(self):
+        """Every 2 hours: publish queued Pinterest pins."""
+        try:
+            from deps import pinterest_scheduler
+            result = await pinterest_scheduler.publish_due_pins()
+            if result.get("published"):
+                logger.info("Pinterest auto-publish: %d published, %d failed",
+                            result["published"], result["failed"])
+        except Exception as e:
+            logger.error("Pinterest auto-publish failed: %s", e)
+
+    async def _auto_pinterest_analytics(self):
+        """Daily: sync Pinterest pin analytics."""
+        try:
+            from deps import pinterest_scheduler
+            result = await pinterest_scheduler.sync_pin_analytics()
+            if result.get("synced"):
+                logger.info("Pinterest analytics sync: %d synced", result["synced"])
+        except Exception as e:
+            logger.error("Pinterest analytics sync failed: %s", e)

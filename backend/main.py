@@ -35,6 +35,7 @@ from routes.sync_etsy import router as sync_router
 from routes.sync_ui import router as sync_ui_router
 from routes.strategy import router as strategy_router
 from routes.seo_routes import router as seo_router
+from routes.pinterest import router as pinterest_router
 
 # Paths that don't require auth
 _PUBLIC_PATHS = {"/auth/login", "/health", "/docs", "/openapi.json", "/redoc"}
@@ -49,8 +50,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in _PUBLIC_PATHS or request.method == "OPTIONS":
             return await call_next(request)
 
-        # Allow Etsy OAuth callback
-        if path.startswith("/etsy/callback"):
+        # Allow OAuth callbacks
+        if path.startswith("/etsy/callback") or path.startswith("/pinterest/callback"):
             return await call_next(request)
 
         # Allow public access to mockup images (used in <img> tags)
@@ -126,3 +127,4 @@ app.include_router(sync_router)
 app.include_router(sync_ui_router)
 app.include_router(strategy_router)
 app.include_router(seo_router)
+app.include_router(pinterest_router)

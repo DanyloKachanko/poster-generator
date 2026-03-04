@@ -3066,3 +3066,152 @@ export async function syncDovShopAnalytics(): Promise<{ status: string; period: 
   if (!res.ok) throw new Error('Failed to sync DovShop analytics');
   return res.json();
 }
+
+// === Pinterest ===
+
+export interface PinterestStatus {
+  configured: boolean;
+  connected: boolean;
+  username?: string;
+  error?: string;
+}
+
+export interface PinterestBoard {
+  id?: string;
+  board_id?: string;
+  name: string;
+  description?: string;
+  pin_count?: number;
+  privacy?: string;
+}
+
+export interface PinterestPin {
+  id: number;
+  product_id: number;
+  board_id: string;
+  pin_id?: string;
+  title: string;
+  description: string;
+  image_url: string;
+  link: string;
+  alt_text?: string;
+  status: string;
+  scheduled_at?: string;
+  published_at?: string;
+  error_message?: string;
+  impressions?: number;
+  saves?: number;
+  clicks?: number;
+  outbound_clicks?: number;
+  product_title?: string;
+  product_image_url?: string;
+}
+
+export interface PinterestPinContent {
+  title: string;
+  description: string;
+  alt_text: string;
+}
+
+export interface PinterestStats {
+  total_published: number;
+  total_queued: number;
+  total_impressions: number;
+  total_saves: number;
+  total_clicks: number;
+  total_outbound_clicks: number;
+}
+
+export async function getPinterestStatus(): Promise<PinterestStatus> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/status`);
+  if (!res.ok) throw new Error('Failed to get Pinterest status');
+  return res.json();
+}
+
+export async function getPinterestAuthUrl(): Promise<{ url: string }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/auth-url`);
+  if (!res.ok) throw new Error('Failed to get Pinterest auth URL');
+  return res.json();
+}
+
+export async function disconnectPinterest(): Promise<{ ok: boolean }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/disconnect`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to disconnect Pinterest');
+  return res.json();
+}
+
+export async function getPinterestBoards(): Promise<{ boards: PinterestBoard[] }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/boards`);
+  if (!res.ok) throw new Error('Failed to get Pinterest boards');
+  return res.json();
+}
+
+export async function getPinterestQueuedPins(): Promise<{ pins: PinterestPin[] }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/queue`);
+  if (!res.ok) throw new Error('Failed to get queued pins');
+  return res.json();
+}
+
+export async function getPinterestPublishedPins(): Promise<{ pins: PinterestPin[] }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/published`);
+  if (!res.ok) throw new Error('Failed to get published pins');
+  return res.json();
+}
+
+export async function publishPinterestPinsNow(): Promise<{ published: number; failed: number }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/publish-now`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to publish pins');
+  return res.json();
+}
+
+export async function generatePinterestPinContent(productId: number, variant: number = 1): Promise<PinterestPinContent> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/generate?product_id=${productId}&variant=${variant}`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to generate pin content');
+  return res.json();
+}
+
+export async function queuePinterestPin(data: {
+  product_id: number;
+  board_id: string;
+  title: string;
+  description: string;
+  image_url: string;
+  link: string;
+  alt_text?: string;
+}): Promise<{ id: number; status: string }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/queue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to queue pin');
+  return res.json();
+}
+
+export async function bulkGeneratePinterestPins(productIds: number[], boardId: string, pinsPerProduct: number = 2, intervalHours: number = 3): Promise<{ results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string }>; queued: number; first_post?: string; interval_hours?: number }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/bulk-generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ product_ids: productIds, board_id: boardId, pins_per_product: pinsPerProduct, interval_hours: intervalHours }),
+  });
+  if (!res.ok) throw new Error('Failed to bulk generate pins');
+  return res.json();
+}
+
+export async function deletePinterestPin(pinDbId: number, fromPinterest: boolean = false): Promise<{ ok: boolean }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/pins/${pinDbId}?from_pinterest=${fromPinterest}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Failed to delete pin');
+  return res.json();
+}
+
+export async function getPinterestAnalyticsSummary(): Promise<PinterestStats> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/analytics/summary`);
+  if (!res.ok) throw new Error('Failed to get Pinterest analytics');
+  return res.json();
+}
+
+export async function syncPinterestAnalytics(): Promise<{ synced: number; errors?: number }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/analytics/sync`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to sync Pinterest analytics');
+  return res.json();
+}

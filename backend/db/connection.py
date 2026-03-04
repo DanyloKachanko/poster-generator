@@ -293,6 +293,50 @@ CREATE TABLE IF NOT EXISTS background_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_background_tasks_type ON background_tasks(task_type);
 CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status);
+
+CREATE TABLE IF NOT EXISTS pinterest_tokens (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    access_token TEXT NOT NULL,
+    refresh_token TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    username TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pinterest_boards (
+    board_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    pin_count INTEGER DEFAULT 0,
+    privacy TEXT DEFAULT 'PUBLIC',
+    synced_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS pinterest_pins (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id),
+    board_id TEXT NOT NULL,
+    pin_id TEXT,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    image_url TEXT NOT NULL,
+    link TEXT DEFAULT '',
+    alt_text TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',
+    scheduled_at TIMESTAMP,
+    published_at TIMESTAMP,
+    error_message TEXT,
+    impressions INTEGER DEFAULT 0,
+    saves INTEGER DEFAULT 0,
+    clicks INTEGER DEFAULT 0,
+    outbound_clicks INTEGER DEFAULT 0,
+    last_analytics_sync TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pinterest_pins_status ON pinterest_pins(status);
+CREATE INDEX IF NOT EXISTS idx_pinterest_pins_product ON pinterest_pins(product_id);
+CREATE INDEX IF NOT EXISTS idx_pinterest_pins_board ON pinterest_pins(board_id);
 """
 
 

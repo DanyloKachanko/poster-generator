@@ -15,3 +15,4 @@ from db.products import *  # noqa: F401,F403
 from db.seo import *  # noqa: F401,F403
 from db.strategy import *  # noqa: F401,F403
 from db.tasks import *  # noqa: F401,F403
+from db.pinterest import *  # noqa: F401,F403

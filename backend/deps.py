@@ -18,6 +18,9 @@ from presets_manager import PresetsManager
 from integrations.dovshop.client import DovShopClient
 from integrations.telegram.bot import TelegramBot
 from integrations.etsy.sync import EtsySyncService
+from integrations.pinterest.client import PinterestAPI
+from integrations.pinterest.generator import PinterestPinGenerator
+from integrations.pinterest.scheduler import PinterestScheduler
 
 # Load .env from root directory (parent of backend/)
 root_env = Path(__file__).parent.parent / ".env"
@@ -51,3 +54,6 @@ upscale_service = UpscaleService()
 presets_manager = PresetsManager()
 dovshop_client = DovShopClient()
 telegram_bot = TelegramBot()
+pinterest_api = PinterestAPI()
+pinterest_generator = PinterestPinGenerator()
+pinterest_scheduler = PinterestScheduler(pinterest_api, notifier)

@@ -4,6 +4,7 @@ const tabs = [
   { href: '/publish', label: 'Queue' },
   { href: '/publish/calendar', label: 'Calendar' },
   { href: '/publish/dovshop', label: 'DovShop' },
+  { href: '/publish/pinterest', label: 'Pinterest' },
 ];
 
 export default function PublishLayout({ children }: { children: React.ReactNode }) {
