@@ -198,6 +198,14 @@ class PublishScheduler:
     # Public API
     # ------------------------------------------------------------------
 
+    async def _get_etsy_listing_id(self, printify_product_id: str) -> Optional[str]:
+        """Look up etsy_listing_id from products table."""
+        try:
+            product = await db.get_product_by_printify_id(printify_product_id)
+            return product.get("etsy_listing_id") if product else None
+        except Exception:
+            return None
+
     async def _get_product_image(self, printify_product_id: str) -> Optional[str]:
         """Fetch the default mockup image URL from Printify."""
         try:
@@ -232,7 +240,8 @@ class PublishScheduler:
             title[:40],
             slot_est.strftime("%Y-%m-%d %H:%M"),
         )
-        await self.notifier.notify_queued(title, next_slot.isoformat(), image_url=image_url)
+        etsy_id = await self._get_etsy_listing_id(printify_product_id)
+        await self.notifier.notify_queued(title, next_slot.isoformat(), image_url=image_url, etsy_listing_id=etsy_id)
         return result
 
     async def publish_now(self, printify_product_id: str) -> dict:
@@ -257,8 +266,10 @@ class PublishScheduler:
         await db.update_schedule_status(printify_product_id, "published")
         logger.info("Immediately published %s", printify_product_id)
         stats = await db.get_schedule_stats()
+        etsy_id = await self._get_etsy_listing_id(printify_product_id)
         await self.notifier.notify_published(
-            title, stats["pending"], stats["next_publish_at"], image_url=image_url
+            title, stats["pending"], stats["next_publish_at"], image_url=image_url,
+            etsy_listing_id=etsy_id,
         )
 
         # Post-publish: fill Etsy metadata + set primary image in background
@@ -294,9 +305,10 @@ class PublishScheduler:
                 await db.update_schedule_status(pid, "published")
                 logger.info("Published %s (%s)", pid, item["title"][:40])
                 stats = await db.get_schedule_stats()
+                etsy_id = await self._get_etsy_listing_id(pid)
                 await self.notifier.notify_published(
                     item["title"], stats["pending"], stats["next_publish_at"],
-                    image_url=item.get("image_url"),
+                    image_url=item.get("image_url"), etsy_listing_id=etsy_id,
                 )
                 # Post-publish: fill Etsy metadata + set primary image
                 etsy_metadata = item.get("etsy_metadata", {})
@@ -693,6 +705,7 @@ class PublishScheduler:
                     collection=coll_name,
                     categories=enrichment.get("categories"),
                     image_url=img_url,
+                    etsy_listing_id=etsy_listing_id,
                 )
 
                 logger.info("Auto-published %s to DovShop (id=%s, categories=%s)",
