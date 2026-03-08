@@ -673,12 +673,25 @@ class PublishScheduler:
 
                 coll_name = enrichment.get("collection_name")
 
-                # Build images list
+                # Build images list — prefer mockups from image_mockups table
                 push_images = []
-                preferred = (local_product or {}).get("preferred_mockup_url")
-                if preferred:
-                    push_images.append(preferred)
-                if img_url and img_url not in push_images:
+                source_img_id = (local_product or {}).get("source_image_id")
+                if source_img_id:
+                    pool = await db.get_pool()
+                    async with pool.acquire() as conn:
+                        mockup_rows = await conn.fetch("""
+                            SELECT etsy_cdn_url FROM image_mockups
+                            WHERE image_id = $1 AND dovshop_included = true
+                            ORDER BY dovshop_primary DESC, rank ASC
+                        """, source_img_id)
+                    push_images = [r["etsy_cdn_url"] for r in mockup_rows if r["etsy_cdn_url"]]
+
+                # Fallback to preferred_mockup_url or raw image
+                if not push_images:
+                    preferred = (local_product or {}).get("preferred_mockup_url")
+                    if preferred:
+                        push_images.append(preferred)
+                if not push_images and img_url:
                     push_images.append(img_url)
 
                 etsy_url_ds = f"https://www.etsy.com/listing/{etsy_listing_id}" if etsy_listing_id else ""
