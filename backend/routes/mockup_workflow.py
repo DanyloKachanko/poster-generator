@@ -883,20 +883,30 @@ async def reapply_product_mockups(printify_product_id: str, request: Optional[Re
 
 # --- Fix Duplicate Mockups on Etsy ---
 
+FIX_DUPLICATES_TASK_ID = "fix_duplicates"
+
+
 @router.post("/mockups/workflow/fix-duplicates")
 async def fix_duplicate_mockups():
     """Find Etsy listings with more images than expected and re-upload mockups.
 
-    Compares Etsy image count vs DB mockup count for each product.
-    If Etsy has more images, re-uploads (which deletes old + uploads fresh).
+    Runs as background task. Check progress via GET /mockups/workflow/fix-duplicates-status.
     """
+    existing = await db.get_background_task(FIX_DUPLICATES_TASK_ID)
+    if existing and existing.get("status") == "running":
+        progress = existing.get("progress_json") or {}
+        return {
+            "started": False,
+            "message": f"Already running: {existing.get('done', 0)} done",
+            "running": True,
+        }
+
     from deps import etsy
 
     access_token, shop_id = await ensure_etsy_token()
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        # Get all products with mockups uploaded to Etsy
         products = await conn.fetch(
             """
             SELECT p.id, p.printify_product_id, p.etsy_listing_id, p.title,
@@ -912,6 +922,7 @@ async def fix_duplicate_mockups():
             """
         )
 
+    # Phase 1: scan for duplicates (quick — just count images on Etsy)
     duplicates = []
     for prod in products:
         try:
@@ -926,33 +937,68 @@ async def fix_duplicate_mockups():
                     "expected": prod["db_mockup_count"],
                     "source_image_id": prod["source_image_id"],
                 })
-            await asyncio.sleep(0.3)  # rate limit
+            await asyncio.sleep(0.3)
         except Exception as e:
             logger.warning(f"fix-duplicates: could not check {prod['etsy_listing_id']}: {e}")
 
     if not duplicates:
-        return {"duplicates_found": 0, "message": "No duplicate mockups found"}
+        return {"started": False, "duplicates_found": 0, "message": "No duplicate mockups found"}
 
-    # Re-upload mockups for each duplicate
-    fixed = []
-    errors = []
-    for dup in duplicates:
-        try:
-            result = await approve_poster(dup["source_image_id"], ApproveRequest())
-            fixed.append({
-                "title": dup["title"],
-                "etsy_listing_id": dup["etsy_listing_id"],
-                "was": dup["etsy_images"],
-                "now": result.get("etsy_upload", {}).get("images_uploaded", "?"),
-            })
-        except Exception as e:
-            errors.append({"title": dup["title"], "error": str(e)})
-        await asyncio.sleep(1)  # rate limit between products
+    total = len(duplicates)
+    await db.create_background_task(FIX_DUPLICATES_TASK_ID, "fix_duplicates", total=total)
+    await db.update_background_task(
+        FIX_DUPLICATES_TASK_ID, status="running",
+        progress_json={"ok": 0, "errors": [], "fixed": []},
+    )
 
+    asyncio.create_task(_background_fix_duplicates(duplicates))
+    return {"started": True, "duplicates_found": total, "message": f"Fixing {total} listings in background..."}
+
+
+async def _background_fix_duplicates(duplicates: list):
+    ok_count = 0
+    done_count = 0
+    errors_list = []
+    fixed_list = []
+    try:
+        for dup in duplicates:
+            done_count += 1
+            try:
+                result = await approve_poster(dup["source_image_id"], ApproveRequest())
+                ok_count += 1
+                fixed_list.append({
+                    "title": dup["title"],
+                    "was": dup["etsy_images"],
+                    "now": result.get("etsy_upload", {}).get("images_uploaded", "?"),
+                })
+            except Exception as e:
+                errors_list.append(f"{dup['title']}: {e}")
+            await asyncio.sleep(1)
+            await db.update_background_task(
+                FIX_DUPLICATES_TASK_ID, done=done_count,
+                progress_json={"ok": ok_count, "errors": errors_list, "fixed": fixed_list},
+            )
+    except Exception as e:
+        errors_list.append(f"Fatal: {e}")
+    finally:
+        await db.update_background_task(
+            FIX_DUPLICATES_TASK_ID, status="completed", done=done_count,
+            progress_json={"ok": ok_count, "errors": errors_list, "fixed": fixed_list},
+        )
+
+
+@router.get("/mockups/workflow/fix-duplicates-status")
+async def fix_duplicates_status():
+    """Check progress of fix-duplicates background task."""
+    task = await db.get_background_task(FIX_DUPLICATES_TASK_ID)
+    if not task:
+        return {"status": "not_started"}
+    progress = task.get("progress_json") or {}
     return {
-        "duplicates_found": len(duplicates),
-        "fixed": len(fixed),
-        "errors": len(errors),
-        "details": fixed,
-        "error_details": errors,
+        "status": task.get("status", "unknown"),
+        "total": task.get("total", 0),
+        "done": task.get("done", 0),
+        "ok": progress.get("ok", 0),
+        "errors": progress.get("errors", []),
+        "fixed": progress.get("fixed", []),
     }
