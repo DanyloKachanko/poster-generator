@@ -34,10 +34,71 @@ EST = timezone(timedelta(hours=-5))
 # Pinterest publish slots in EST (hours)
 PINTEREST_SLOTS_EST = [8, 12, 14, 17, 20]
 
+# Board auto-categorization: keywords → board name
+# Order matters — first match wins. Checked against lowercase product title.
+BOARD_KEYWORDS = [
+    # Japanese & Zen
+    ("Japanese & Zen Art", [
+        "japanese", "japan", "zen", "torii", "ukiyo", "fuji", "sakura",
+        "bamboo", "koi", "samurai", "woodblock", "ink art", "asian",
+        "cherry blossom", "meditation",
+    ]),
+    # Space & Celestial
+    ("Space & Celestial Art", [
+        "space", "galaxy", "cosmic", "nebula", "constellation", "celestial",
+        "astronomy", "planets", "solar system", "lunar", "moon", "starfield",
+        "aurora", "northern lights", "night sky", "starry",
+    ]),
+    # Botanical
+    ("Botanical Wall Art", [
+        "botanical", "fern", "eucalyptus", "monstera", "leaf", "plant",
+        "flower", "floral", "wildflower", "herb", "succulent", "olive branch",
+        "rose", "peony", "lavender", "dried flower",
+    ]),
+    # Coastal & Ocean
+    ("Coastal & Ocean Decor", [
+        "ocean", "coastal", "beach", "sea", "marine", "coral", "wave",
+        "octopus", "lighthouse", "palm", "tropical", "turquoise",
+    ]),
+    # Nature & Landscape
+    ("Nature & Landscape Art", [
+        "mountain", "forest", "landscape", "sunset", "sunrise", "lake",
+        "desert", "dune", "wilderness", "countryside", "alpine", "misty",
+        "twilight", "golden hour", "rocky coast", "wheat field",
+    ]),
+    # Abstract & Modern
+    ("Abstract & Modern Art", [
+        "abstract", "geometric", "minimalist", "modern", "line art",
+        "mid century", "boho", "arch", "marble", "gradient", "mandala",
+        "neon", "cyberpunk", "vaporwave", "pattern",
+    ]),
+]
+
+# Fallback board for products that don't match any category
+FALLBACK_BOARD = "Wall Art Prints"
+
+
+def auto_categorize_board(title: str, boards: list[dict]) -> str:
+    """Return board_id for product based on title keywords."""
+    title_lower = title.lower()
+    board_map = {b["name"]: b["board_id"] for b in boards}
+
+    for board_name, keywords in BOARD_KEYWORDS:
+        if board_name in board_map:
+            for kw in keywords:
+                if kw in title_lower:
+                    return board_map[board_name]
+
+    # Fallback
+    if FALLBACK_BOARD in board_map:
+        return board_map[FALLBACK_BOARD]
+    # If fallback board doesn't exist, return first board
+    return boards[0]["board_id"] if boards else ""
+
 
 class BulkGenerateRequest(BaseModel):
     product_ids: List[int]
-    board_id: str
+    board_id: str  # "auto" for auto-categorization
 
 
 # === Helpers ===
@@ -384,6 +445,14 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
     results = []
     queued_count = 0
 
+    # Load boards for auto-categorization
+    use_auto = req.board_id == "auto"
+    boards = []
+    if use_auto:
+        boards = await db.get_pinterest_boards()
+        if not boards:
+            raise HTTPException(status_code=400, detail="No boards found for auto-categorization")
+
     for product_id in req.product_ids:
         async with pool.acquire() as conn:
             product = await conn.fetchrow("SELECT * FROM products WHERE id = $1", product_id)
@@ -392,6 +461,9 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
             continue
 
         try:
+            # Determine board
+            board_id = auto_categorize_board(product["title"] or "", boards) if use_auto else req.board_id
+
             etsy_url = ""
             if product["etsy_listing_id"]:
                 etsy_url = f"https://www.etsy.com/listing/{product['etsy_listing_id']}"
@@ -419,7 +491,7 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
 
             pin_id = await db.queue_pin(
                 product_id=product_id,
-                board_id=req.board_id,
+                board_id=board_id,
                 title=content["title"],
                 description=content["description"],
                 image_url=image_url,
@@ -427,6 +499,11 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
                 alt_text=content.get("alt_text", ""),
                 scheduled_at=scheduled_at,
             )
+
+            # Find board name for result display
+            board_name = ""
+            if use_auto:
+                board_name = next((b["name"] for b in boards if b["board_id"] == board_id), "")
 
             scheduled_est = scheduled_at.astimezone(EST)
             results.append({
@@ -436,6 +513,7 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
                 "image_url": image_url,
                 "scheduled_at": scheduled_at.isoformat(),
                 "scheduled_est": scheduled_est.strftime("%b %d, %H:%M EST"),
+                "board_name": board_name,
             })
             queued_count += 1
         except Exception as e:

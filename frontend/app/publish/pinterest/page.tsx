@@ -31,7 +31,7 @@ export default function PinterestPage() {
 
   // Boards
   const [boards, setBoards] = useState<PinterestBoard[]>([]);
-  const [selectedBoard, setSelectedBoard] = useState('');
+  const [selectedBoard, setSelectedBoard] = useState('auto');
 
   // Products
   const [products, setProducts] = useState<PinterestProduct[]>([]);
@@ -39,7 +39,7 @@ export default function PinterestPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [generating, setGenerating] = useState(false);
   const [generateResult, setGenerateResult] = useState<{
-    results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string; scheduled_est?: string; image_url?: string }>;
+    results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string; scheduled_est?: string; image_url?: string; board_name?: string }>;
     queued: number;
   } | null>(null);
 
@@ -81,9 +81,7 @@ export default function PinterestPage() {
       if (s.connected) {
         const { boards: b } = await getPinterestBoards();
         setBoards(b);
-        if (b.length > 0 && !selectedBoard) {
-          setSelectedBoard(b[0].id || b[0].board_id || '');
-        }
+        // Keep 'auto' as default, no need to auto-select first board
       }
     } catch (err) {
       setError((err as Error).message);
@@ -293,6 +291,7 @@ export default function PinterestPage() {
               onChange={e => setSelectedBoard(e.target.value)}
               className="px-4 py-2.5 bg-gray-800 border border-gray-600 rounded-lg text-white text-base min-w-[250px]"
             >
+              <option value="auto">Auto-categorize by keywords</option>
               {boards.map(b => (
                 <option key={b.id || b.board_id} value={b.id || b.board_id}>
                   {b.name} ({b.pin_count || 0} pins)
@@ -318,7 +317,7 @@ export default function PinterestPage() {
               <div className="space-y-2">
                 {generateResult.results.map((r, i) => (
                   <p key={i} className={`text-base ${r.error ? 'text-red-400' : 'text-gray-300'}`}>
-                    Product #{r.product_id}: {r.error || `${r.title} — ${r.scheduled_est}`}
+                    Product #{r.product_id}: {r.error || `${r.title} — ${r.scheduled_est}${r.board_name ? ` → ${r.board_name}` : ''}`}
                   </p>
                 ))}
               </div>
