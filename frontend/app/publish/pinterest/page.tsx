@@ -215,24 +215,24 @@ export default function PinterestPage() {
     return groups;
   }, [queuedPins]);
 
-  if (loading) return <div className="p-6 text-gray-400">Loading...</div>;
+  if (loading) return <div className="p-8 text-gray-400 text-lg">Loading...</div>;
 
   if (!status?.configured) {
     return (
-      <div className="p-6">
-        <h2 className="text-xl font-bold text-white mb-4">Pinterest</h2>
-        <p className="text-gray-400">PINTEREST_APP_ID and PINTEREST_APP_SECRET not configured in .env</p>
+      <div className="p-8">
+        <h2 className="text-2xl font-bold text-white mb-4">Pinterest</h2>
+        <p className="text-gray-400 text-lg">PINTEREST_APP_ID and PINTEREST_APP_SECRET not configured in .env</p>
       </div>
     );
   }
 
   if (!status?.connected) {
     return (
-      <div className="p-6">
-        <h2 className="text-xl font-bold text-white mb-4">Pinterest</h2>
-        <p className="text-gray-400 mb-4">Connect your Pinterest account to start pinning your products.</p>
-        {status?.error && <p className="text-red-400 mb-4">{status.error}</p>}
-        <button onClick={handleConnect} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium">
+      <div className="p-8">
+        <h2 className="text-2xl font-bold text-white mb-4">Pinterest</h2>
+        <p className="text-gray-400 mb-6 text-lg">Connect your Pinterest account to start pinning your products.</p>
+        {status?.error && <p className="text-red-400 mb-4 text-base">{status.error}</p>}
+        <button onClick={handleConnect} className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium text-base">
           Connect Pinterest
         </button>
       </div>
@@ -240,31 +240,31 @@ export default function PinterestPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="p-8 max-w-[1600px] mx-auto">
       {error && (
-        <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded text-red-300 text-sm">
-          {error}
-          <button onClick={() => setError(null)} className="ml-2 text-red-400 hover:text-red-200">X</button>
+        <div className="mb-6 p-4 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-base flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={() => setError(null)} className="ml-4 text-red-400 hover:text-red-200 font-bold text-lg">X</button>
         </div>
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h2 className="text-xl font-bold text-white">Pinterest</h2>
-          <p className="text-sm text-gray-400">
-            Connected as <span className="text-green-400">{status.username || 'user'}</span>
+          <h2 className="text-2xl font-bold text-white">Pinterest</h2>
+          <p className="text-base text-gray-400 mt-1">
+            Connected as <span className="text-green-400 font-medium">{status.username || 'user'}</span>
             {' '}&middot;{' '}
             {boards.length} board{boards.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button onClick={handleDisconnect} className="px-3 py-1.5 text-sm text-gray-400 hover:text-red-400 border border-gray-700 rounded">
+        <button onClick={handleDisconnect} className="px-4 py-2 text-base text-gray-400 hover:text-red-400 border border-gray-700 rounded-lg transition-colors">
           Disconnect
         </button>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1">
+      <div className="flex gap-1 mb-8 bg-gray-800/50 rounded-xl p-1.5">
         {([
           { key: 'products' as Tab, label: `Products (${products.length})` },
           { key: 'queue' as Tab, label: `Queue (${queuedPins.length})` },
@@ -274,8 +274,8 @@ export default function PinterestPage() {
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              tab === t.key ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
+            className={`px-6 py-2.5 rounded-lg text-base font-medium transition-colors ${
+              tab === t.key ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
             {t.label}
@@ -287,11 +287,11 @@ export default function PinterestPage() {
       {tab === 'products' && (
         <div>
           {/* Top bar: board selector + generate button */}
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex items-center gap-4 mb-6 p-4 bg-gray-800/50 rounded-xl border border-gray-700/50">
             <select
               value={selectedBoard}
               onChange={e => setSelectedBoard(e.target.value)}
-              className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm"
+              className="px-4 py-2.5 bg-gray-800 border border-gray-600 rounded-lg text-white text-base min-w-[250px]"
             >
               {boards.map(b => (
                 <option key={b.id || b.board_id} value={b.id || b.board_id}>
@@ -302,19 +302,22 @@ export default function PinterestPage() {
             <button
               onClick={handleGenerate}
               disabled={generating || selectedIds.size === 0 || !selectedBoard}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-sm font-medium"
+              className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-base font-medium transition-colors"
             >
               {generating ? `Generating ${selectedIds.size} pins...` : `Generate & Queue (${selectedIds.size})`}
             </button>
+            {selectedIds.size > 0 && (
+              <span className="text-gray-400 text-base ml-2">{selectedIds.size} selected</span>
+            )}
           </div>
 
           {/* Generate result */}
           {generateResult && (
-            <div className="mb-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
-              <p className="text-green-400 font-medium mb-2">{generateResult.queued} pins queued</p>
-              <div className="space-y-1">
+            <div className="mb-6 p-5 bg-gray-800 rounded-xl border border-gray-700">
+              <p className="text-green-400 font-semibold text-lg mb-3">{generateResult.queued} pins queued</p>
+              <div className="space-y-2">
                 {generateResult.results.map((r, i) => (
-                  <p key={i} className={`text-sm ${r.error ? 'text-red-400' : 'text-gray-300'}`}>
+                  <p key={i} className={`text-base ${r.error ? 'text-red-400' : 'text-gray-300'}`}>
                     Product #{r.product_id}: {r.error || `${r.title} — ${r.scheduled_est}`}
                   </p>
                 ))}
@@ -323,70 +326,67 @@ export default function PinterestPage() {
           )}
 
           {productsLoading ? (
-            <p className="text-gray-400">Loading products...</p>
+            <p className="text-gray-400 text-lg">Loading products...</p>
           ) : products.length === 0 ? (
-            <p className="text-gray-500">No published products found (need etsy_listing_id).</p>
+            <p className="text-gray-500 text-lg">No published products found (need etsy_listing_id).</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-700 text-gray-400 text-left">
-                    <th className="pb-2 pr-3 w-8">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.size === products.length && products.length > 0}
-                        onChange={toggleSelectAll}
-                        className="rounded bg-gray-700 border-gray-600"
-                      />
-                    </th>
-                    <th className="pb-2 pr-3 w-12"></th>
-                    <th className="pb-2 pr-3">Title</th>
-                    <th className="pb-2 pr-3 w-20 text-center">Mockups</th>
-                    <th className="pb-2 pr-3 w-20 text-center">Queued</th>
-                    <th className="pb-2 w-24 text-center">Published</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {products.map(p => (
-                    <tr
-                      key={p.id}
-                      className={`border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer ${selectedIds.has(p.id) ? 'bg-blue-900/20' : ''}`}
-                      onClick={() => toggleSelect(p.id)}
-                    >
-                      <td className="py-2 pr-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(p.id)}
-                          onChange={() => toggleSelect(p.id)}
-                          onClick={e => e.stopPropagation()}
-                          className="rounded bg-gray-700 border-gray-600"
-                        />
-                      </td>
-                      <td className="py-2 pr-3">
-                        {p.image_url && (
-                          <img src={p.image_url} alt="" className="w-10 h-12 object-cover rounded" />
-                        )}
-                      </td>
-                      <td className="py-2 pr-3 text-white truncate max-w-xs">{p.title}</td>
-                      <td className="py-2 pr-3 text-center">
-                        <span className={p.mockup_count > 0 ? 'text-green-400' : 'text-gray-600'}>
-                          {p.mockup_count}
-                        </span>
-                      </td>
-                      <td className="py-2 pr-3 text-center">
-                        <span className={p.queued_pins > 0 ? 'text-yellow-400' : 'text-gray-600'}>
-                          {p.queued_pins}
-                        </span>
-                      </td>
-                      <td className="py-2 text-center">
-                        <span className={p.published_pins > 0 ? 'text-blue-400' : 'text-gray-600'}>
-                          {p.published_pins}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {/* Select All header */}
+              <div className="col-span-full flex items-center gap-3 mb-2">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === products.length && products.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-5 h-5 rounded bg-gray-700 border-gray-600 text-blue-500"
+                />
+                <span className="text-gray-400 text-base">
+                  {selectedIds.size === products.length ? 'Deselect all' : 'Select all'} ({products.length} products)
+                </span>
+              </div>
+
+              {products.map(p => (
+                <div
+                  key={p.id}
+                  onClick={() => toggleSelect(p.id)}
+                  className={`flex gap-4 p-4 rounded-xl border cursor-pointer transition-all ${
+                    selectedIds.has(p.id)
+                      ? 'bg-blue-900/20 border-blue-600/50 ring-1 ring-blue-500/30'
+                      : 'bg-gray-800/60 border-gray-700/50 hover:bg-gray-800 hover:border-gray-600'
+                  }`}
+                >
+                  <div className="relative shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(p.id)}
+                      onChange={() => toggleSelect(p.id)}
+                      onClick={e => e.stopPropagation()}
+                      className="absolute top-1 left-1 w-4 h-4 rounded bg-gray-700/80 border-gray-600 text-blue-500 z-10"
+                    />
+                    {p.image_url ? (
+                      <img src={p.image_url} alt="" className="w-20 h-24 object-cover rounded-lg" />
+                    ) : (
+                      <div className="w-20 h-24 bg-gray-700 rounded-lg" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0 flex flex-col justify-between">
+                    <p className="text-white font-medium text-base leading-snug line-clamp-2">{p.title}</p>
+                    <div className="flex gap-4 mt-2">
+                      <div className="text-center">
+                        <p className={`text-lg font-semibold ${p.mockup_count > 0 ? 'text-green-400' : 'text-gray-600'}`}>{p.mockup_count}</p>
+                        <p className="text-xs text-gray-500">mockups</p>
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-lg font-semibold ${p.queued_pins > 0 ? 'text-yellow-400' : 'text-gray-600'}`}>{p.queued_pins}</p>
+                        <p className="text-xs text-gray-500">queued</p>
+                      </div>
+                      <div className="text-center">
+                        <p className={`text-lg font-semibold ${p.published_pins > 0 ? 'text-blue-400' : 'text-gray-600'}`}>{p.published_pins}</p>
+                        <p className="text-xs text-gray-500">published</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -395,43 +395,43 @@ export default function PinterestPage() {
       {/* ===== Queue Tab ===== */}
       {tab === 'queue' && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Pin Queue</h3>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-white">Pin Queue</h3>
             <button
               onClick={handlePublishNow}
               disabled={publishing || queuedPins.length === 0}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded text-sm font-medium"
+              className="px-6 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg text-base font-medium transition-colors"
             >
               {publishing ? 'Publishing...' : 'Publish All Now'}
             </button>
           </div>
           {queueLoading ? (
-            <p className="text-gray-400">Loading queue...</p>
+            <p className="text-gray-400 text-lg">Loading queue...</p>
           ) : queuedPins.length === 0 ? (
-            <p className="text-gray-500">No pins in queue. Go to Products tab to generate pins.</p>
+            <p className="text-gray-500 text-lg">No pins in queue. Go to Products tab to generate pins.</p>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-8">
               {Object.entries(queueByDay).map(([day, pins]) => (
                 <div key={day}>
-                  <h4 className="text-sm font-medium text-gray-400 mb-2 border-b border-gray-800 pb-1">{day}</h4>
-                  <div className="space-y-2">
+                  <h4 className="text-base font-semibold text-gray-300 mb-3 pb-2 border-b border-gray-700">{day}</h4>
+                  <div className="space-y-3">
                     {pins.map(pin => {
                       const timeStr = pin.scheduled_at
                         ? new Date(pin.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })
                         : '--:--';
                       return (
-                        <div key={pin.id} className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
-                          <span className="text-sm text-gray-300 font-mono w-16 shrink-0">{timeStr}</span>
+                        <div key={pin.id} className="flex items-center gap-4 p-4 bg-gray-800/60 rounded-xl border border-gray-700/50 hover:bg-gray-800 transition-colors">
+                          <span className="text-base text-gray-300 font-mono w-20 shrink-0 font-medium">{timeStr}</span>
                           {pin.image_url && (
-                            <img src={pin.image_url} alt="" className="w-10 h-12 object-cover rounded shrink-0" />
+                            <img src={pin.image_url} alt="" className="w-14 h-18 object-cover rounded-lg shrink-0" />
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-white text-sm font-medium truncate">{pin.title}</p>
-                            <p className="text-gray-500 text-xs truncate">{pin.description}</p>
+                            <p className="text-white text-base font-medium truncate">{pin.title}</p>
+                            <p className="text-gray-500 text-sm truncate mt-0.5">{pin.description}</p>
                           </div>
                           <button
                             onClick={() => handleDeletePin(pin.id)}
-                            className="text-gray-500 hover:text-red-400 text-sm shrink-0"
+                            className="text-gray-500 hover:text-red-400 text-base px-3 py-1.5 rounded-lg hover:bg-red-900/20 transition-colors shrink-0"
                           >
                             Remove
                           </button>
@@ -449,31 +449,31 @@ export default function PinterestPage() {
       {/* ===== Published Tab ===== */}
       {tab === 'published' && (
         <div>
-          <h3 className="text-lg font-semibold text-white mb-4">Published Pins</h3>
+          <h3 className="text-xl font-semibold text-white mb-6">Published Pins</h3>
           {publishedLoading ? (
-            <p className="text-gray-400">Loading...</p>
+            <p className="text-gray-400 text-lg">Loading...</p>
           ) : publishedPins.length === 0 ? (
-            <p className="text-gray-500">No published pins yet.</p>
+            <p className="text-gray-500 text-lg">No published pins yet.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {publishedPins.map(pin => (
-                <div key={pin.id} className="flex gap-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
+                <div key={pin.id} className="flex gap-5 p-5 bg-gray-800/60 rounded-xl border border-gray-700/50 hover:bg-gray-800 transition-colors">
                   {(pin.product_image_url || pin.image_url) && (
-                    <img src={pin.product_image_url || pin.image_url} alt="" className="w-16 h-20 object-cover rounded" />
+                    <img src={pin.product_image_url || pin.image_url} alt="" className="w-20 h-24 object-cover rounded-lg shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium truncate">{pin.title}</p>
-                    <p className="text-gray-400 text-sm">{pin.product_title}</p>
-                    <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                      <span>{pin.impressions || 0} impressions</span>
-                      <span>{pin.saves || 0} saves</span>
-                      <span>{pin.clicks || 0} clicks</span>
-                      <span>{pin.outbound_clicks || 0} outbound</span>
+                    <p className="text-white font-medium text-base truncate">{pin.title}</p>
+                    <p className="text-gray-400 text-sm mt-1">{pin.product_title}</p>
+                    <div className="flex gap-6 mt-3 text-sm">
+                      <span className="text-blue-400"><span className="font-semibold">{pin.impressions || 0}</span> <span className="text-gray-500">impressions</span></span>
+                      <span className="text-pink-400"><span className="font-semibold">{pin.saves || 0}</span> <span className="text-gray-500">saves</span></span>
+                      <span className="text-purple-400"><span className="font-semibold">{pin.clicks || 0}</span> <span className="text-gray-500">clicks</span></span>
+                      <span className="text-orange-400"><span className="font-semibold">{pin.outbound_clicks || 0}</span> <span className="text-gray-500">outbound</span></span>
                     </div>
                   </div>
                   <button
                     onClick={() => handleDeletePin(pin.id, true)}
-                    className="text-gray-500 hover:text-red-400 text-sm"
+                    className="text-gray-500 hover:text-red-400 text-base px-3 py-1.5 rounded-lg hover:bg-red-900/20 transition-colors shrink-0"
                   >
                     Delete
                   </button>
@@ -487,20 +487,20 @@ export default function PinterestPage() {
       {/* ===== Analytics Tab ===== */}
       {tab === 'analytics' && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-white">Analytics</h3>
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-semibold text-white">Analytics</h3>
             <button
               onClick={handleSyncAnalytics}
               disabled={syncing}
-              className="px-3 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded"
+              className="px-5 py-2.5 text-base bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded-lg transition-colors"
             >
               {syncing ? 'Syncing...' : 'Sync Analytics'}
             </button>
           </div>
           {statsLoading ? (
-            <p className="text-gray-400">Loading...</p>
+            <p className="text-gray-400 text-lg">Loading...</p>
           ) : stats ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
               {[
                 { label: 'Published', value: stats.total_published, color: 'text-green-400' },
                 { label: 'Queued', value: stats.total_queued, color: 'text-yellow-400' },
@@ -509,14 +509,14 @@ export default function PinterestPage() {
                 { label: 'Clicks', value: stats.total_clicks.toLocaleString(), color: 'text-purple-400' },
                 { label: 'Outbound Clicks', value: stats.total_outbound_clicks.toLocaleString(), color: 'text-orange-400' },
               ].map(stat => (
-                <div key={stat.label} className="p-4 bg-gray-800 rounded-lg border border-gray-700">
-                  <p className="text-gray-400 text-sm">{stat.label}</p>
-                  <p className={`text-2xl font-bold ${stat.color}`}>{stat.value}</p>
+                <div key={stat.label} className="p-6 bg-gray-800/60 rounded-xl border border-gray-700/50">
+                  <p className="text-gray-400 text-base mb-1">{stat.label}</p>
+                  <p className={`text-3xl font-bold ${stat.color}`}>{stat.value}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">No analytics data yet.</p>
+            <p className="text-gray-500 text-lg">No analytics data yet.</p>
           )}
         </div>
       )}
