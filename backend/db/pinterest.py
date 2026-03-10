@@ -265,7 +265,6 @@ async def get_pinterest_products() -> List[Dict[str, Any]]:
                 GROUP BY product_id
             ) pp ON pp.product_id = p.id
             WHERE p.etsy_listing_id IS NOT NULL
-              AND p.archived = 0
               AND p.status = 'published'
             ORDER BY p.created_at DESC
         """)
