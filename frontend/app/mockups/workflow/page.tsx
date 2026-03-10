@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getApiUrl, reapplyApprovedMockups, getReapplyStatus } from '@/lib/api';
+import { authFetch } from '@/lib/auth';
 
 interface WorkflowPoster {
   id: number;
@@ -71,7 +72,7 @@ export default function MockupWorkflowPage() {
     setError(null);
     try {
       // Load active templates
-      const activeRes = await fetch(`${getApiUrl()}/mockups/settings/active-templates`);
+      const activeRes = await authFetch(`${getApiUrl()}/mockups/settings/active-templates`);
       if (!activeRes.ok) throw new Error('Failed to load active templates');
       const activeData = await activeRes.json();
       setActiveTemplates(activeData.active_templates || []);
@@ -79,8 +80,8 @@ export default function MockupWorkflowPage() {
       // Load packs + default pack
       try {
         const [packsRes, defaultPackRes] = await Promise.all([
-          fetch(`${getApiUrl()}/mockups/packs`),
-          fetch(`${getApiUrl()}/mockups/settings/default-pack`),
+          authFetch(`${getApiUrl()}/mockups/packs`),
+          authFetch(`${getApiUrl()}/mockups/settings/default-pack`),
         ]);
         if (packsRes.ok) {
           const packsData = await packsRes.json();
@@ -102,8 +103,8 @@ export default function MockupWorkflowPage() {
 
       // Load pending posters + declined in parallel
       const [postersRes, declinedRes] = await Promise.all([
-        fetch(`${getApiUrl()}/mockups/workflow/posters?status=pending`),
-        fetch(`${getApiUrl()}/mockups/workflow/declined`),
+        authFetch(`${getApiUrl()}/mockups/workflow/posters?status=pending`),
+        authFetch(`${getApiUrl()}/mockups/workflow/declined`),
       ]);
       if (!postersRes.ok) throw new Error('Failed to load posters');
       const postersData = await postersRes.json();
@@ -138,7 +139,7 @@ export default function MockupWorkflowPage() {
       const bodyObj = effectivePackId
         ? { poster_url: posterUrl, pack_id: effectivePackId, fill_mode: 'fill' }
         : { poster_url: posterUrl, fill_mode: 'fill' };
-      const res = await fetch(endpoint, {
+      const res = await authFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyObj),
@@ -194,7 +195,7 @@ export default function MockupWorkflowPage() {
       const effectivePackId = posterPackId[posterId] ?? globalPackId;
       const approveBody: Record<string, unknown> = { excluded_template_ids: excluded };
       if (effectivePackId) approveBody.pack_id = effectivePackId;
-      const res = await fetch(`${getApiUrl()}/mockups/workflow/approve/${posterId}`, {
+      const res = await authFetch(`${getApiUrl()}/mockups/workflow/approve/${posterId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(approveBody),
@@ -233,7 +234,7 @@ export default function MockupWorkflowPage() {
     setProcessingIds((prev) => new Set(prev).add(posterId));
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/mockups/workflow/decline/${posterId}`, {
+      const res = await authFetch(`${getApiUrl()}/mockups/workflow/decline/${posterId}`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -262,7 +263,7 @@ export default function MockupWorkflowPage() {
     setProcessingIds((prev) => new Set(prev).add(posterId));
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/mockups/workflow/retry/${posterId}`, {
+      const res = await authFetch(`${getApiUrl()}/mockups/workflow/retry/${posterId}`, {
         method: 'POST',
       });
       if (!res.ok) {
@@ -296,7 +297,7 @@ export default function MockupWorkflowPage() {
   const handleRetryAll = async () => {
     setError(null);
     try {
-      const res = await fetch(`${getApiUrl()}/mockups/workflow/retry-all-declined`, {
+      const res = await authFetch(`${getApiUrl()}/mockups/workflow/retry-all-declined`, {
         method: 'POST',
       });
       if (!res.ok) throw new Error('Retry all failed');
@@ -329,7 +330,7 @@ export default function MockupWorkflowPage() {
         const effectivePackId = posterPackId[id] ?? globalPackId;
         const approveBody: Record<string, unknown> = { excluded_template_ids: excluded };
         if (effectivePackId) approveBody.pack_id = effectivePackId;
-        const res = await fetch(`${getApiUrl()}/mockups/workflow/approve/${id}`, {
+        const res = await authFetch(`${getApiUrl()}/mockups/workflow/approve/${id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(approveBody),
@@ -495,7 +496,7 @@ export default function MockupWorkflowPage() {
                 <button
                   onClick={async () => {
                     try {
-                      await fetch(`${getApiUrl()}/mockups/settings/default-pack/${pack.id}`, { method: 'POST' });
+                      await authFetch(`${getApiUrl()}/mockups/settings/default-pack/${pack.id}`, { method: 'POST' });
                       setSuccessMsg(`"${pack.name}" set as default pack for new products`);
                       setTimeout(() => setSuccessMsg(null), 4000);
                     } catch {}
