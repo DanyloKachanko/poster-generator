@@ -125,6 +125,14 @@ class PublishScheduler:
             id="etsy_auto_sync",
             replace_existing=True,
         )
+        # DovShop auto-sync — every 3 hours (ensures mockups propagate)
+        self.scheduler.add_job(
+            self._auto_dovshop_sync,
+            "interval",
+            hours=3,
+            id="dovshop_sync",
+            replace_existing=True,
+        )
         # Pinterest pin publishing — every 2 hours
         self.scheduler.add_job(
             self._auto_pinterest_publish,
@@ -1053,6 +1061,87 @@ class PublishScheduler:
             logger.info("Auto Etsy sync: %d views/favs, %d orders", views_count, orders_count)
         except Exception as e:
             logger.error("Auto Etsy sync failed: %s", e)
+
+    async def _auto_dovshop_sync(self):
+        """Every 3 hours: sync products to DovShop with mockup images.
+
+        This ensures newly published products get their mockup images
+        propagated to DovShop after Etsy CDN URLs become available.
+        """
+        try:
+            from deps import dovshop_client
+            if not dovshop_client.is_configured:
+                return
+
+            from categorizer import categorize_product
+            from routes.dovshop import _get_mockup_images, _get_variant_prices
+            import json as _json
+
+            pool = await db.get_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT p.*, g.style as gen_style
+                    FROM products p
+                    LEFT JOIN generated_images gi ON gi.id = p.source_image_id
+                    LEFT JOIN generations g ON g.generation_id = gi.generation_id
+                    WHERE p.etsy_listing_id IS NOT NULL
+                    ORDER BY p.created_at DESC
+                """)
+
+            if not rows:
+                return
+
+            posters = []
+            for row in rows:
+                product = dict(row)
+                tags = product.get("tags") or []
+                if isinstance(tags, str):
+                    try:
+                        tags = _json.loads(tags)
+                    except Exception:
+                        tags = []
+
+                # Use PUBLIC_BACKEND_URL for mockup serve fallback
+                import os
+                base_url = os.environ.get("PUBLIC_BACKEND_URL", "https://designapi.dovshop.org")
+                images = await _get_mockup_images(pool, product.get("source_image_id"), base_url)
+                if not images:
+                    continue
+
+                etsy_listing_id = product.get("etsy_listing_id")
+                etsy_url = f"https://www.etsy.com/listing/{etsy_listing_id}" if etsy_listing_id else None
+
+                enabled_sizes = product.get("enabled_sizes") or []
+                if isinstance(enabled_sizes, str):
+                    try:
+                        enabled_sizes = _json.loads(enabled_sizes)
+                    except Exception:
+                        enabled_sizes = []
+
+                prices = await _get_variant_prices(product["printify_product_id"])
+
+                style = product.get("gen_style") or None
+                categories = categorize_product(tags, style)
+
+                posters.append({
+                    "name": product.get("title", ""),
+                    "images": images,
+                    "etsy_url": etsy_url or "",
+                    "tags": tags,
+                    "categories": categories,
+                    "external_id": product["printify_product_id"],
+                    "description": product.get("description", ""),
+                    "sizes": enabled_sizes,
+                    "prices": prices,
+                })
+
+            result = await dovshop_client.bulk_sync(posters)
+            total = result.get("total", len(posters))
+            created = result.get("created", 0)
+            updated = result.get("updated", 0)
+            logger.info("DovShop auto-sync: %d total, %d created, %d updated", total, created, updated)
+        except Exception as e:
+            logger.error("DovShop auto-sync failed: %s", e)
 
     async def _auto_pinterest_publish(self):
         """Every 2 hours: publish queued Pinterest pins."""
