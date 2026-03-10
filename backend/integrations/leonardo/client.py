@@ -49,7 +49,7 @@ class LeonardoAI:
             "modelId": model_id or self.DEFAULT_MODEL,
             "width": width,
             "height": height,
-            "num_images": min(max(num_images, 1), 2),  # Clamp between 1-2 (API limit)
+            "num_images": 1,  # Leonardo alchemy only allows 1 image per generation
             "negative_prompt": negative_prompt or self.DEFAULT_NEGATIVE_PROMPT,
             "public": False,
             "alchemy": True,
