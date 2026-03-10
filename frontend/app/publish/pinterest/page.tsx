@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   getPinterestStatus,
   getPinterestAuthUrl,
   disconnectPinterest,
   getPinterestBoards,
+  getPinterestProducts,
   getPinterestQueuedPins,
   getPinterestPublishedPins,
   publishPinterestPinsNow,
@@ -15,20 +16,32 @@ import {
   bulkGeneratePinterestPins,
   PinterestStatus,
   PinterestBoard,
+  PinterestProduct,
   PinterestPin,
   PinterestStats,
 } from '@/lib/api';
 
-type Tab = 'queue' | 'published' | 'bulk' | 'analytics';
+type Tab = 'products' | 'queue' | 'published' | 'analytics';
 
 export default function PinterestPage() {
   const [status, setStatus] = useState<PinterestStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>('queue');
+  const [tab, setTab] = useState<Tab>('products');
 
   // Boards
   const [boards, setBoards] = useState<PinterestBoard[]>([]);
+  const [selectedBoard, setSelectedBoard] = useState('');
+
+  // Products
+  const [products, setProducts] = useState<PinterestProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [generating, setGenerating] = useState(false);
+  const [generateResult, setGenerateResult] = useState<{
+    results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string; scheduled_est?: string; image_url?: string }>;
+    queued: number;
+  } | null>(null);
 
   // Queue
   const [queuedPins, setQueuedPins] = useState<PinterestPin[]>([]);
@@ -39,14 +52,6 @@ export default function PinterestPage() {
   const [publishedPins, setPublishedPins] = useState<PinterestPin[]>([]);
   const [publishedLoading, setPublishedLoading] = useState(false);
 
-  // Bulk
-  const [selectedBoard, setSelectedBoard] = useState('');
-  const [productIds, setProductIds] = useState('');
-  const [pinsPerProduct, setPinsPerProduct] = useState(2);
-  const [intervalHours, setIntervalHours] = useState(3);
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const [bulkResult, setBulkResult] = useState<{ results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string }>; queued: number; first_post?: string; interval_hours?: number } | null>(null);
-
   // Analytics
   const [stats, setStats] = useState<PinterestStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -54,12 +59,8 @@ export default function PinterestPage() {
 
   useEffect(() => {
     loadStatus();
-
-    // Listen for OAuth callback
     const handler = (event: MessageEvent) => {
-      if (event.data === 'pinterest-connected') {
-        loadStatus();
-      }
+      if (event.data === 'pinterest-connected') loadStatus();
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
@@ -67,7 +68,8 @@ export default function PinterestPage() {
 
   useEffect(() => {
     if (!status?.connected) return;
-    if (tab === 'queue') loadQueue();
+    if (tab === 'products') loadProducts();
+    else if (tab === 'queue') loadQueue();
     else if (tab === 'published') loadPublished();
     else if (tab === 'analytics') loadAnalytics();
   }, [tab, status?.connected]);
@@ -88,6 +90,15 @@ export default function PinterestPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadProducts = async () => {
+    setProductsLoading(true);
+    try {
+      const { products: p } = await getPinterestProducts();
+      setProducts(p);
+    } catch (err) { setError((err as Error).message); }
+    finally { setProductsLoading(false); }
   };
 
   const loadQueue = async () => {
@@ -121,9 +132,7 @@ export default function PinterestPage() {
     try {
       const { url } = await getPinterestAuthUrl();
       window.open(url, 'pinterest-auth', 'width=600,height=700');
-    } catch (err) {
-      setError((err as Error).message);
-    }
+    } catch (err) { setError((err as Error).message); }
   };
 
   const handleDisconnect = async () => {
@@ -133,6 +142,37 @@ export default function PinterestPage() {
     setBoards([]);
   };
 
+  // Products tab
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map(p => p.id)));
+    }
+  };
+
+  const handleGenerate = async () => {
+    if (!selectedBoard || selectedIds.size === 0) return;
+    setGenerating(true);
+    setGenerateResult(null);
+    try {
+      const result = await bulkGeneratePinterestPins(Array.from(selectedIds), selectedBoard);
+      setGenerateResult(result);
+      setSelectedIds(new Set());
+      loadProducts();
+    } catch (err) { setError((err as Error).message); }
+    finally { setGenerating(false); }
+  };
+
+  // Queue tab
   const handlePublishNow = async () => {
     setPublishing(true);
     try {
@@ -147,24 +187,12 @@ export default function PinterestPage() {
     if (!confirm('Delete this pin?')) return;
     try {
       await deletePinterestPin(pinId, fromPinterest);
-      loadQueue();
-      loadPublished();
+      if (tab === 'queue') loadQueue();
+      else loadPublished();
     } catch (err) { setError((err as Error).message); }
   };
 
-  const handleBulkGenerate = async () => {
-    if (!selectedBoard || !productIds.trim()) return;
-    setBulkLoading(true);
-    setBulkResult(null);
-    try {
-      const ids = productIds.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
-      const result = await bulkGeneratePinterestPins(ids, selectedBoard, pinsPerProduct, intervalHours);
-      setBulkResult(result);
-      loadQueue();
-    } catch (err) { setError((err as Error).message); }
-    finally { setBulkLoading(false); }
-  };
-
+  // Analytics
   const handleSyncAnalytics = async () => {
     setSyncing(true);
     try {
@@ -174,9 +202,21 @@ export default function PinterestPage() {
     finally { setSyncing(false); }
   };
 
+  // Group queued pins by day for timeline view
+  const queueByDay = useMemo(() => {
+    const groups: Record<string, PinterestPin[]> = {};
+    for (const pin of queuedPins) {
+      const dateStr = pin.scheduled_at
+        ? new Date(pin.scheduled_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/New_York' })
+        : 'Unscheduled';
+      if (!groups[dateStr]) groups[dateStr] = [];
+      groups[dateStr].push(pin);
+    }
+    return groups;
+  }, [queuedPins]);
+
   if (loading) return <div className="p-6 text-gray-400">Loading...</div>;
 
-  // Not configured
   if (!status?.configured) {
     return (
       <div className="p-6">
@@ -186,24 +226,19 @@ export default function PinterestPage() {
     );
   }
 
-  // Not connected
   if (!status?.connected) {
     return (
       <div className="p-6">
         <h2 className="text-xl font-bold text-white mb-4">Pinterest</h2>
         <p className="text-gray-400 mb-4">Connect your Pinterest account to start pinning your products.</p>
         {status?.error && <p className="text-red-400 mb-4">{status.error}</p>}
-        <button
-          onClick={handleConnect}
-          className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium"
-        >
+        <button onClick={handleConnect} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium">
           Connect Pinterest
         </button>
       </div>
     );
   }
 
-  // Connected
   return (
     <div className="p-6">
       {error && (
@@ -223,30 +258,141 @@ export default function PinterestPage() {
             {boards.length} board{boards.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
-          onClick={handleDisconnect}
-          className="px-3 py-1.5 text-sm text-gray-400 hover:text-red-400 border border-gray-700 rounded"
-        >
+        <button onClick={handleDisconnect} className="px-3 py-1.5 text-sm text-gray-400 hover:text-red-400 border border-gray-700 rounded">
           Disconnect
         </button>
       </div>
 
-      {/* Sub-tabs */}
+      {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-800/50 rounded-lg p-1">
-        {(['queue', 'published', 'bulk', 'analytics'] as Tab[]).map(t => (
+        {([
+          { key: 'products' as Tab, label: `Products (${products.length})` },
+          { key: 'queue' as Tab, label: `Queue (${queuedPins.length})` },
+          { key: 'published' as Tab, label: 'Published' },
+          { key: 'analytics' as Tab, label: 'Analytics' },
+        ]).map(t => (
           <button
-            key={t}
-            onClick={() => setTab(t)}
+            key={t.key}
+            onClick={() => setTab(t.key)}
             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              tab === t ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
+              tab === t.key ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
             }`}
           >
-            {t === 'queue' ? `Queue (${queuedPins.length})` : t === 'published' ? 'Published' : t === 'bulk' ? 'Bulk Generate' : 'Analytics'}
+            {t.label}
           </button>
         ))}
       </div>
 
-      {/* Queue Tab */}
+      {/* ===== Products Tab ===== */}
+      {tab === 'products' && (
+        <div>
+          {/* Top bar: board selector + generate button */}
+          <div className="flex items-center gap-4 mb-4">
+            <select
+              value={selectedBoard}
+              onChange={e => setSelectedBoard(e.target.value)}
+              className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white text-sm"
+            >
+              {boards.map(b => (
+                <option key={b.id || b.board_id} value={b.id || b.board_id}>
+                  {b.name} ({b.pin_count || 0} pins)
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleGenerate}
+              disabled={generating || selectedIds.size === 0 || !selectedBoard}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-sm font-medium"
+            >
+              {generating ? `Generating ${selectedIds.size} pins...` : `Generate & Queue (${selectedIds.size})`}
+            </button>
+          </div>
+
+          {/* Generate result */}
+          {generateResult && (
+            <div className="mb-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
+              <p className="text-green-400 font-medium mb-2">{generateResult.queued} pins queued</p>
+              <div className="space-y-1">
+                {generateResult.results.map((r, i) => (
+                  <p key={i} className={`text-sm ${r.error ? 'text-red-400' : 'text-gray-300'}`}>
+                    Product #{r.product_id}: {r.error || `${r.title} — ${r.scheduled_est}`}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {productsLoading ? (
+            <p className="text-gray-400">Loading products...</p>
+          ) : products.length === 0 ? (
+            <p className="text-gray-500">No published products found (need etsy_listing_id).</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-700 text-gray-400 text-left">
+                    <th className="pb-2 pr-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.size === products.length && products.length > 0}
+                        onChange={toggleSelectAll}
+                        className="rounded bg-gray-700 border-gray-600"
+                      />
+                    </th>
+                    <th className="pb-2 pr-3 w-12"></th>
+                    <th className="pb-2 pr-3">Title</th>
+                    <th className="pb-2 pr-3 w-20 text-center">Mockups</th>
+                    <th className="pb-2 pr-3 w-20 text-center">Queued</th>
+                    <th className="pb-2 w-24 text-center">Published</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {products.map(p => (
+                    <tr
+                      key={p.id}
+                      className={`border-b border-gray-800 hover:bg-gray-800/50 cursor-pointer ${selectedIds.has(p.id) ? 'bg-blue-900/20' : ''}`}
+                      onClick={() => toggleSelect(p.id)}
+                    >
+                      <td className="py-2 pr-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                          onClick={e => e.stopPropagation()}
+                          className="rounded bg-gray-700 border-gray-600"
+                        />
+                      </td>
+                      <td className="py-2 pr-3">
+                        {p.image_url && (
+                          <img src={p.image_url} alt="" className="w-10 h-12 object-cover rounded" />
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-white truncate max-w-xs">{p.title}</td>
+                      <td className="py-2 pr-3 text-center">
+                        <span className={p.mockup_count > 0 ? 'text-green-400' : 'text-gray-600'}>
+                          {p.mockup_count}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-3 text-center">
+                        <span className={p.queued_pins > 0 ? 'text-yellow-400' : 'text-gray-600'}>
+                          {p.queued_pins}
+                        </span>
+                      </td>
+                      <td className="py-2 text-center">
+                        <span className={p.published_pins > 0 ? 'text-blue-400' : 'text-gray-600'}>
+                          {p.published_pins}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== Queue Tab ===== */}
       {tab === 'queue' && (
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -262,25 +408,37 @@ export default function PinterestPage() {
           {queueLoading ? (
             <p className="text-gray-400">Loading queue...</p>
           ) : queuedPins.length === 0 ? (
-            <p className="text-gray-500">No pins in queue. Use Bulk Generate to add pins.</p>
+            <p className="text-gray-500">No pins in queue. Go to Products tab to generate pins.</p>
           ) : (
-            <div className="space-y-3">
-              {queuedPins.map(pin => (
-                <div key={pin.id} className="flex gap-4 p-4 bg-gray-800 rounded-lg border border-gray-700">
-                  {pin.image_url && (
-                    <img src={pin.image_url} alt="" className="w-16 h-20 object-cover rounded" />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-medium truncate">{pin.title}</p>
-                    <p className="text-gray-400 text-sm truncate">{pin.description}</p>
-                    <p className="text-gray-500 text-xs mt-1">Board: {pin.board_id}</p>
+            <div className="space-y-6">
+              {Object.entries(queueByDay).map(([day, pins]) => (
+                <div key={day}>
+                  <h4 className="text-sm font-medium text-gray-400 mb-2 border-b border-gray-800 pb-1">{day}</h4>
+                  <div className="space-y-2">
+                    {pins.map(pin => {
+                      const timeStr = pin.scheduled_at
+                        ? new Date(pin.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'America/New_York' })
+                        : '--:--';
+                      return (
+                        <div key={pin.id} className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
+                          <span className="text-sm text-gray-300 font-mono w-16 shrink-0">{timeStr}</span>
+                          {pin.image_url && (
+                            <img src={pin.image_url} alt="" className="w-10 h-12 object-cover rounded shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white text-sm font-medium truncate">{pin.title}</p>
+                            <p className="text-gray-500 text-xs truncate">{pin.description}</p>
+                          </div>
+                          <button
+                            onClick={() => handleDeletePin(pin.id)}
+                            className="text-gray-500 hover:text-red-400 text-sm shrink-0"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                  <button
-                    onClick={() => handleDeletePin(pin.id)}
-                    className="text-gray-500 hover:text-red-400 text-sm"
-                  >
-                    Remove
-                  </button>
                 </div>
               ))}
             </div>
@@ -288,7 +446,7 @@ export default function PinterestPage() {
         </div>
       )}
 
-      {/* Published Tab */}
+      {/* ===== Published Tab ===== */}
       {tab === 'published' && (
         <div>
           <h3 className="text-lg font-semibold text-white mb-4">Published Pins</h3>
@@ -326,90 +484,7 @@ export default function PinterestPage() {
         </div>
       )}
 
-      {/* Bulk Generate Tab */}
-      {tab === 'bulk' && (
-        <div>
-          <h3 className="text-lg font-semibold text-white mb-4">Bulk Generate Pins</h3>
-          <p className="text-gray-400 text-sm mb-4">
-            AI-generate Pinterest-optimized pin content for multiple products and add them to the queue.
-          </p>
-          <div className="space-y-4 max-w-lg">
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Board</label>
-              <select
-                value={selectedBoard}
-                onChange={e => setSelectedBoard(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-              >
-                {boards.map(b => (
-                  <option key={b.id || b.board_id} value={b.id || b.board_id}>
-                    {b.name} ({b.pin_count || 0} pins)
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-300 mb-1">Product IDs (comma-separated)</label>
-              <input
-                type="text"
-                value={productIds}
-                onChange={e => setProductIds(e.target.value)}
-                placeholder="1, 2, 3, 4, 5"
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-              />
-            </div>
-            <div className="flex gap-4">
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Pins per product</label>
-                <select
-                  value={pinsPerProduct}
-                  onChange={e => setPinsPerProduct(parseInt(e.target.value))}
-                  className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-                >
-                  <option value={1}>1 pin</option>
-                  <option value={2}>2 pins</option>
-                  <option value={3}>3 pins</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm text-gray-300 mb-1">Interval between pins</label>
-                <select
-                  value={intervalHours}
-                  onChange={e => setIntervalHours(parseInt(e.target.value))}
-                  className="px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white"
-                >
-                  <option value={2}>2 hours</option>
-                  <option value={3}>3 hours</option>
-                  <option value={4}>4 hours</option>
-                  <option value={6}>6 hours</option>
-                  <option value={12}>12 hours</option>
-                </select>
-              </div>
-            </div>
-            <button
-              onClick={handleBulkGenerate}
-              disabled={bulkLoading || !selectedBoard || !productIds.trim()}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded text-sm font-medium"
-            >
-              {bulkLoading ? 'Generating...' : 'Generate & Queue Pins'}
-            </button>
-          </div>
-          {bulkResult && (
-            <div className="mt-6 p-4 bg-gray-800 rounded-lg border border-gray-700">
-              <p className="text-green-400 font-medium mb-2">{bulkResult.queued} pins queued</p>
-              <div className="space-y-1">
-                {bulkResult.results.map((r, i) => (
-                  <p key={i} className={`text-sm ${r.error ? 'text-red-400' : 'text-gray-300'}`}>
-                    Product #{r.product_id}: {r.error || r.title}
-                  </p>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Analytics Tab */}
+      {/* ===== Analytics Tab ===== */}
       {tab === 'analytics' && (
         <div>
           <div className="flex items-center justify-between mb-4">

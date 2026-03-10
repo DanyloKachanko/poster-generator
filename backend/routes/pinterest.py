@@ -2,6 +2,7 @@
 
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -28,11 +29,15 @@ class CreatePinRequest(BaseModel):
     scheduled_at: Optional[str] = None  # ISO format or None for immediate
 
 
+EST = timezone(timedelta(hours=-5))
+
+# Pinterest publish slots in EST (hours)
+PINTEREST_SLOTS_EST = [8, 12, 14, 17, 20]
+
+
 class BulkGenerateRequest(BaseModel):
     product_ids: List[int]
     board_id: str
-    pins_per_product: int = 2
-    interval_hours: int = 3
 
 
 # === Helpers ===
@@ -181,12 +186,20 @@ async def create_board(name: str, description: str = ""):
     return result
 
 
+# === Products for pin creation ===
+
+@router.get("/products")
+async def list_products_for_pinning():
+    """Get all published products with mockup count and pin stats."""
+    products = await db.get_pinterest_products()
+    return {"products": products}
+
+
 # === Pins ===
 
 @router.post("/pins/queue")
 async def queue_pin(req: CreatePinRequest):
     """Queue a pin for publishing. Auto-generates title/description if not provided."""
-    from datetime import datetime
 
     pool = await db.get_pool()
     async with pool.acquire() as conn:
@@ -314,15 +327,62 @@ async def generate_pin_content(product_id: int, variant: int = 1):
     return result
 
 
+async def _next_pinterest_slot() -> datetime:
+    """Calculate the next available Pinterest publish slot.
+
+    Uses 5 fixed EST slots per day: 8:00, 12:00, 14:00, 17:00, 20:00.
+    Finds the last scheduled pin time, then picks the next slot after it.
+    """
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT MAX(scheduled_at) AS last_slot
+            FROM pinterest_pins
+            WHERE status = 'queued' AND scheduled_at IS NOT NULL
+        """)
+
+    now_utc = datetime.now(timezone.utc)
+    now_est = now_utc.astimezone(EST)
+
+    if row and row["last_slot"]:
+        last = row["last_slot"]
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        last_est = last.astimezone(EST)
+    else:
+        last_est = now_est
+
+    # Find next slot after last_est
+    for hour in PINTEREST_SLOTS_EST:
+        candidate = last_est.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if candidate > last_est and candidate > now_est:
+            return candidate.astimezone(timezone.utc)
+
+    # All today's slots passed — go to next day's first slot
+    next_day = last_est.date() + timedelta(days=1)
+    first_slot = datetime(next_day.year, next_day.month, next_day.day,
+                          PINTEREST_SLOTS_EST[0], 0, tzinfo=EST)
+    # Make sure it's also after now
+    if first_slot <= now_est:
+        next_day = now_est.date() + timedelta(days=1)
+        first_slot = datetime(next_day.year, next_day.month, next_day.day,
+                              PINTEREST_SLOTS_EST[0], 0, tzinfo=EST)
+    return first_slot.astimezone(timezone.utc)
+
+
 @router.post("/pins/bulk-generate")
 async def bulk_generate_pins(req: BulkGenerateRequest):
-    """AI-generate and queue pins for multiple products with staggered scheduling."""
-    from datetime import datetime, timedelta
+    """AI-generate and queue pins for multiple products.
 
+    For each product:
+    1. Pick next mockup image via round-robin
+    2. AI-generate Pinterest-optimized title/description
+    3. Assign next available EST time slot
+    4. Queue pin
+    """
     pool = await db.get_pool()
     results = []
     queued_count = 0
-    base_time = datetime.utcnow() + timedelta(hours=1)  # Start posting in 1 hour
 
     for product_id in req.product_ids:
         async with pool.acquire() as conn:
@@ -336,39 +396,54 @@ async def bulk_generate_pins(req: BulkGenerateRequest):
             if product["etsy_listing_id"]:
                 etsy_url = f"https://www.etsy.com/listing/{product['etsy_listing_id']}"
 
-            image_url = product.get("preferred_mockup_url") or product["image_url"]
+            # Round-robin mockup selection
+            image_url = None
+            if product.get("source_image_id"):
+                image_url = await db.get_next_mockup_url(product_id, product["source_image_id"])
+            if not image_url:
+                image_url = product.get("preferred_mockup_url") or product["image_url"]
 
-            for variant in range(1, req.pins_per_product + 1):
-                content = await pinterest_generator.generate_pin_content(
-                    etsy_title=product["title"] or "",
-                    etsy_tags=[],
-                    niche=product.get("style", "wall art"),
-                    etsy_url=etsy_url,
-                    variant=variant,
-                )
+            # Count existing pins to determine variant number
+            existing_pins = await db.get_pins_for_product(product_id)
+            variant = len(existing_pins) + 1
 
-                scheduled_at = base_time + timedelta(hours=req.interval_hours * queued_count)
+            content = await pinterest_generator.generate_pin_content(
+                etsy_title=product["title"] or "",
+                etsy_tags=[],
+                niche=product.get("style", "wall art"),
+                etsy_url=etsy_url,
+                variant=variant,
+            )
 
-                pin_id = await db.queue_pin(
-                    product_id=product_id,
-                    board_id=req.board_id,
-                    title=content["title"],
-                    description=content["description"],
-                    image_url=image_url,
-                    link=etsy_url or f"https://dovshop.org/poster/{product_id}",
-                    alt_text=content.get("alt_text", ""),
-                    scheduled_at=scheduled_at,
-                )
-                results.append({"product_id": product_id, "variant": variant, "pin_id": pin_id, "title": content["title"], "scheduled_at": scheduled_at.isoformat()})
-                queued_count += 1
+            scheduled_at = await _next_pinterest_slot()
+
+            pin_id = await db.queue_pin(
+                product_id=product_id,
+                board_id=req.board_id,
+                title=content["title"],
+                description=content["description"],
+                image_url=image_url,
+                link=etsy_url or "https://dovshop.org",
+                alt_text=content.get("alt_text", ""),
+                scheduled_at=scheduled_at,
+            )
+
+            scheduled_est = scheduled_at.astimezone(EST)
+            results.append({
+                "product_id": product_id,
+                "pin_id": pin_id,
+                "title": content["title"],
+                "image_url": image_url,
+                "scheduled_at": scheduled_at.isoformat(),
+                "scheduled_est": scheduled_est.strftime("%b %d, %H:%M EST"),
+            })
+            queued_count += 1
         except Exception as e:
             results.append({"product_id": product_id, "error": str(e)})
 
     return {
         "results": results,
         "queued": queued_count,
-        "first_post": base_time.isoformat(),
-        "interval_hours": req.interval_hours,
     }
 
 

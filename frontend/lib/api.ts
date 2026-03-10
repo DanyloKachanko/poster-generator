@@ -3122,6 +3122,24 @@ export interface PinterestStats {
   total_outbound_clicks: number;
 }
 
+export interface PinterestProduct {
+  id: number
+  title: string
+  image_url: string
+  printify_product_id: string
+  etsy_listing_id: string
+  source_image_id: number | null
+  mockup_count: number
+  queued_pins: number
+  published_pins: number
+}
+
+export async function getPinterestProducts(): Promise<{ products: PinterestProduct[] }> {
+  const res = await apiFetch(`${getApiUrl()}/pinterest/products`);
+  if (!res.ok) throw new Error('Failed to get Pinterest products');
+  return res.json();
+}
+
 export async function getPinterestStatus(): Promise<PinterestStatus> {
   const res = await apiFetch(`${getApiUrl()}/pinterest/status`);
   if (!res.ok) throw new Error('Failed to get Pinterest status');
@@ -3188,11 +3206,14 @@ export async function queuePinterestPin(data: {
   return res.json();
 }
 
-export async function bulkGeneratePinterestPins(productIds: number[], boardId: string, pinsPerProduct: number = 2, intervalHours: number = 3): Promise<{ results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string }>; queued: number; first_post?: string; interval_hours?: number }> {
+export async function bulkGeneratePinterestPins(
+  productIds: number[],
+  boardId: string,
+): Promise<{ results: Array<{ product_id: number; pin_id?: number; title?: string; error?: string; scheduled_est?: string; image_url?: string }>; queued: number }> {
   const res = await apiFetch(`${getApiUrl()}/pinterest/pins/bulk-generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ product_ids: productIds, board_id: boardId, pins_per_product: pinsPerProduct, interval_hours: intervalHours }),
+    body: JSON.stringify({ product_ids: productIds, board_id: boardId }),
   });
   if (!res.ok) throw new Error('Failed to bulk generate pins');
   return res.json();

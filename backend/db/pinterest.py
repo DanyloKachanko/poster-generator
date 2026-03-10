@@ -228,3 +228,69 @@ async def delete_pin_record(pin_db_id: int) -> None:
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("DELETE FROM pinterest_pins WHERE id = $1", pin_db_id)
+
+
+# === Products for pin creation ===
+
+async def get_pinterest_products() -> List[Dict[str, Any]]:
+    """Get all published products with mockup count and pin statistics."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT
+                p.id,
+                p.title,
+                p.image_url,
+                p.printify_product_id,
+                p.etsy_listing_id,
+                p.source_image_id,
+                COALESCE(m.mockup_count, 0) AS mockup_count,
+                COALESCE(pq.queued_pins, 0) AS queued_pins,
+                COALESCE(pp.published_pins, 0) AS published_pins
+            FROM products p
+            LEFT JOIN (
+                SELECT image_id, COUNT(*) AS mockup_count
+                FROM image_mockups
+                WHERE dovshop_included = true AND etsy_cdn_url IS NOT NULL
+                GROUP BY image_id
+            ) m ON m.image_id = p.source_image_id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) AS queued_pins
+                FROM pinterest_pins WHERE status = 'queued'
+                GROUP BY product_id
+            ) pq ON pq.product_id = p.id
+            LEFT JOIN (
+                SELECT product_id, COUNT(*) AS published_pins
+                FROM pinterest_pins WHERE status = 'published'
+                GROUP BY product_id
+            ) pp ON pp.product_id = p.id
+            WHERE p.etsy_listing_id IS NOT NULL
+            ORDER BY p.created_at DESC
+        """)
+        return [dict(r) for r in rows]
+
+
+async def get_next_mockup_url(product_id: int, source_image_id: int) -> Optional[str]:
+    """Pick the next mockup URL via round-robin for a product.
+
+    Selects the least-used mockup (by count of existing pins using that URL),
+    breaking ties by rank order. Returns the etsy_cdn_url.
+    """
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("""
+            SELECT im.etsy_cdn_url
+            FROM image_mockups im
+            LEFT JOIN (
+                SELECT image_url, COUNT(*) AS use_count
+                FROM pinterest_pins
+                WHERE product_id = $1
+                GROUP BY image_url
+            ) used ON used.image_url = im.etsy_cdn_url
+            WHERE im.image_id = $2
+              AND im.dovshop_included = true
+              AND im.etsy_cdn_url IS NOT NULL
+            ORDER BY COALESCE(used.use_count, 0) ASC, im.rank ASC
+            LIMIT 1
+        """, product_id, source_image_id)
+        return row["etsy_cdn_url"] if row else None

@@ -30,6 +30,7 @@ PINTEREST DESCRIPTION RULES (max 500 chars):
 - First sentence: hook with keyword
 - Mention the room/occasion it's perfect for
 - Include call-to-action: "Shop now on Etsy" or "Tap to shop"
+- End with: "Browse more at dovshop.org"
 - Include 5-8 hashtags at the end
 - Hashtags: #WallArt #HomeDecor #[NicheSpecific] #[StyleSpecific] #PosterPrint
 - Tone: inspirational, aspirational, warm
