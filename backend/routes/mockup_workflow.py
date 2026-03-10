@@ -213,43 +213,64 @@ async def approve_poster(image_id: int, request: Optional[ApproveRequest] = None
                     )
 
             if product and product["etsy_listing_id"]:
-                access_token, shop_id = await ensure_etsy_token()
+                # Skip Etsy upload if another image of this product already uploaded mockups
+                async with pool.acquire() as conn:
+                    already_uploaded = await conn.fetchval(
+                        """
+                        SELECT COUNT(*) FROM image_mockups im
+                        JOIN generated_images gi ON im.image_id = gi.id
+                        WHERE gi.product_id = $1
+                          AND gi.id != $2
+                          AND im.etsy_image_id IS NOT NULL
+                        """,
+                        product["id"],
+                        image_id,
+                    )
+                if already_uploaded:
+                    etsy_upload_result = {
+                        "success": True,
+                        "listing_id": product["etsy_listing_id"],
+                        "skipped": True,
+                        "reason": "another image already uploaded mockups",
+                    }
+                else:
+                    access_token, shop_id = await ensure_etsy_token()
 
-                # Shuffle mockup order so each product gets a random primary
-                shuffled_entries = mockup_entries[:]
-                random.shuffle(shuffled_entries)
+                    # Shuffle mockup order so each product gets a random primary
+                    shuffled_entries = mockup_entries[:]
+                    random.shuffle(shuffled_entries)
 
-                # Upload original poster + all mockups
-                upload_results = await _upload_multi_images_to_etsy(
-                    access_token=access_token,
-                    shop_id=shop_id,
-                    listing_id=product["etsy_listing_id"],
-                    original_poster_url=image["url"],
-                    mockup_entries=shuffled_entries,
-                )
+                    # Upload original poster + all mockups
+                    upload_results = await _upload_multi_images_to_etsy(
+                        access_token=access_token,
+                        shop_id=shop_id,
+                        listing_id=product["etsy_listing_id"],
+                        original_poster_url=image["url"],
+                        mockup_entries=shuffled_entries,
+                    )
 
-                # Save Etsy info back to image_mockups
-                for ur in upload_results:
-                    if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
-                        await db.update_image_mockup_etsy_info(
-                            ur["mockup_db_id"],
-                            ur["etsy_image_id"],
-                            ur.get("etsy_cdn_url", ""),
-                        )
+                    # Save Etsy info back to image_mockups
+                    for ur in upload_results:
+                        if ur.get("mockup_db_id") and ur.get("etsy_image_id"):
+                            await db.update_image_mockup_etsy_info(
+                                ur["mockup_db_id"],
+                                ur["etsy_image_id"],
+                                ur.get("etsy_cdn_url", ""),
+                            )
 
-                # Save first mockup CDN URL as preferred
-                for ur in upload_results:
-                    if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
-                        await db.set_product_preferred_mockup(
-                            product["printify_product_id"], ur["etsy_cdn_url"]
-                        )
-                        break
+                    # Save first mockup CDN URL as preferred
+                    for ur in upload_results:
+                        if ur.get("etsy_cdn_url") and ur["type"] == "mockup":
+                            await db.set_product_preferred_mockup(
+                                product["printify_product_id"], ur["etsy_cdn_url"]
+                            )
+                            break
 
-                etsy_upload_result = {
-                    "success": True,
-                    "listing_id": product["etsy_listing_id"],
-                    "images_uploaded": len(upload_results),
-                }
+                    etsy_upload_result = {
+                        "success": True,
+                        "listing_id": product["etsy_listing_id"],
+                        "images_uploaded": len(upload_results),
+                    }
             elif product:
                 etsy_upload_result = {
                     "success": False,
@@ -858,3 +879,80 @@ async def reapply_product_mockups(printify_product_id: str, request: Optional[Re
     approve_req = ApproveRequest(pack_id=pack_id) if pack_id else None
     result = await approve_poster(image_id, approve_req)
     return result
+
+
+# --- Fix Duplicate Mockups on Etsy ---
+
+@router.post("/mockups/workflow/fix-duplicates")
+async def fix_duplicate_mockups():
+    """Find Etsy listings with more images than expected and re-upload mockups.
+
+    Compares Etsy image count vs DB mockup count for each product.
+    If Etsy has more images, re-uploads (which deletes old + uploads fresh).
+    """
+    from deps import etsy
+
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        # Get all products with mockups uploaded to Etsy
+        products = await conn.fetch(
+            """
+            SELECT p.id, p.printify_product_id, p.etsy_listing_id, p.title,
+                   p.source_image_id,
+                   COUNT(im.id) as db_mockup_count
+            FROM products p
+            JOIN generated_images gi ON gi.id = p.source_image_id
+            JOIN image_mockups im ON im.image_id = gi.id
+            WHERE p.etsy_listing_id IS NOT NULL AND p.etsy_listing_id != ''
+              AND im.etsy_image_id IS NOT NULL
+              AND p.status != 'deleted'
+            GROUP BY p.id, p.printify_product_id, p.etsy_listing_id, p.title, p.source_image_id
+            """
+        )
+
+    duplicates = []
+    for prod in products:
+        try:
+            images_resp = await etsy.get_listing_images(access_token, prod["etsy_listing_id"])
+            etsy_count = len(images_resp.get("results", []))
+            if etsy_count > prod["db_mockup_count"]:
+                duplicates.append({
+                    "product_id": prod["id"],
+                    "title": prod["title"],
+                    "etsy_listing_id": prod["etsy_listing_id"],
+                    "etsy_images": etsy_count,
+                    "expected": prod["db_mockup_count"],
+                    "source_image_id": prod["source_image_id"],
+                })
+            await asyncio.sleep(0.3)  # rate limit
+        except Exception as e:
+            logger.warning(f"fix-duplicates: could not check {prod['etsy_listing_id']}: {e}")
+
+    if not duplicates:
+        return {"duplicates_found": 0, "message": "No duplicate mockups found"}
+
+    # Re-upload mockups for each duplicate
+    fixed = []
+    errors = []
+    for dup in duplicates:
+        try:
+            result = await approve_poster(dup["source_image_id"], ApproveRequest())
+            fixed.append({
+                "title": dup["title"],
+                "etsy_listing_id": dup["etsy_listing_id"],
+                "was": dup["etsy_images"],
+                "now": result.get("etsy_upload", {}).get("images_uploaded", "?"),
+            })
+        except Exception as e:
+            errors.append({"title": dup["title"], "error": str(e)})
+        await asyncio.sleep(1)  # rate limit between products
+
+    return {
+        "duplicates_found": len(duplicates),
+        "fixed": len(fixed),
+        "errors": len(errors),
+        "details": fixed,
+        "error_details": errors,
+    }
