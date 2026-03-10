@@ -42,6 +42,15 @@ services:
       - PUBLIC_BACKEND_URL=${PUBLIC_BACKEND_URL:-}
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - SCHEDULER_ENABLED=${SCHEDULER_ENABLED:-true}
+    deploy:
+      update_config:
+        order: start-first
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs')"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
 
   frontend:
@@ -54,7 +63,17 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8003}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    deploy:
+      update_config:
+        order: start-first
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
     restart: unless-stopped
 
 volumes:
