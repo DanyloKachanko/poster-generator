@@ -575,7 +575,8 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
                     "taxonomy_id": 1027,
                     "type": "download",
                     "is_supply": False,
-                    "should_auto_renew": True,
+                    "should_auto_renew": False,
+                    "shop_section_id": 58019908,  # Digital Downloads
                 })
 
                 new_listing_id = str(new_listing.get("listing_id", ""))
