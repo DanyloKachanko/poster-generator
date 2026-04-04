@@ -456,7 +456,8 @@ def _create_size_variants(upscaled_path: str, listing_id: str) -> tuple[bytes, s
         for filename, target_w, target_h in sizes:
             resized = img.resize((target_w, target_h), Image.LANCZOS)
             jpg_buf = io.BytesIO()
-            resized.save(jpg_buf, format="JPEG", quality=95, dpi=(300, 300))
+            # Quality 85 keeps ZIP under 20MB Etsy limit
+            resized.save(jpg_buf, format="JPEG", quality=85, dpi=(300, 300))
             zf.writestr(filename, jpg_buf.getvalue())
             size_names.append(filename.replace(".jpg", "").replace("print_", ""))
 
@@ -597,6 +598,10 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
                 ok += 1
                 logger.info(f"digital: {done + 1}/{len(products)} created: {digital_title[:50]} -> {new_listing_id}")
 
+            except httpx.HTTPStatusError as e:
+                body = e.response.text[:300] if e.response else ""
+                logger.error(f"digital: failed {listing_id}: {e} | {body}")
+                errors.append({"listing_id": listing_id, "title": title[:50], "error": f"{e} | {body}"})
             except Exception as e:
                 logger.error(f"digital: failed {listing_id}: {e}")
                 errors.append({"listing_id": listing_id, "title": title[:50], "error": str(e)})
