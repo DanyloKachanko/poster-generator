@@ -54,8 +54,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path.startswith("/etsy/callback") or path.startswith("/pinterest/callback"):
             return await call_next(request)
 
-        # Allow public access to mockup images (used in <img> tags)
-        if path.startswith("/mockups/serve/"):
+        # Allow public access to mockup images and digital ZIPs
+        if path.startswith("/mockups/serve/") or path.startswith("/etsy/digital-zip/"):
             return await call_next(request)
 
         auth_header = request.headers.get("Authorization", "")
