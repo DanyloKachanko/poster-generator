@@ -17,6 +17,7 @@ Pipeline per image:
 
 import asyncio
 import csv
+import io
 import logging
 import os
 import sys
@@ -82,17 +83,18 @@ async def ensure_columns(pool: asyncpg.Pool):
 
 
 async def get_images_to_backup(pool: asyncpg.Pool) -> list[dict]:
-    """Get all generated images that haven't been backed up yet."""
+    """Get generated images for active listings that haven't been backed up."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT gi.id, gi.url, gi.generation_id,
+            SELECT gi.id, gi.url, gi.image_id, gi.generation_id,
                    p.etsy_listing_id
             FROM generated_images gi
-            LEFT JOIN products p ON gi.product_id = p.id
-            WHERE gi.local_path IS NULL
+            JOIN products p ON gi.product_id = p.id
+            WHERE p.etsy_listing_id IS NOT NULL
+              AND p.status != 'deleted'
+              AND gi.local_path IS NULL
               AND gi.url IS NOT NULL
-              AND gi.url != ''
             ORDER BY gi.id
             """
         )
@@ -100,15 +102,17 @@ async def get_images_to_backup(pool: asyncpg.Pool) -> list[dict]:
 
 
 async def get_images_to_upscale(pool: asyncpg.Pool) -> list[dict]:
-    """Get all backed-up images that haven't been upscaled yet."""
+    """Get backed-up images for active listings that haven't been upscaled."""
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT gi.id, gi.local_path, gi.generation_id,
+            SELECT gi.id, gi.image_id, gi.local_path, gi.generation_id,
                    p.etsy_listing_id
             FROM generated_images gi
-            LEFT JOIN products p ON gi.product_id = p.id
-            WHERE gi.local_path IS NOT NULL
+            JOIN products p ON gi.product_id = p.id
+            WHERE p.etsy_listing_id IS NOT NULL
+              AND p.status != 'deleted'
+              AND gi.local_path IS NOT NULL
               AND gi.upscaled_path IS NULL
             ORDER BY gi.id
             """
@@ -188,31 +192,56 @@ async def upscale_image(
         return {"id": img_id, "listing_id": listing_id, "status": "error", "error": "local file missing"}
 
     try:
-        # Create prediction via Replicate HTTP API
-        image_bytes = local_path.read_bytes()
         import base64
+        from PIL import Image
+
+        MAX_PIXELS = 1_500_000  # Conservative limit for Replicate GPU
+
+        img_pil = Image.open(local_path)
+        w, h = img_pil.size
+        scale = 4
+
+        if w * h > MAX_PIXELS:
+            # Resize to fit GPU, keep aspect ratio
+            ratio = (MAX_PIXELS / (w * h)) ** 0.5
+            new_w = int(w * ratio) & ~1  # even numbers
+            new_h = int(h * ratio) & ~1
+            img_pil = img_pil.resize((new_w, new_h), Image.LANCZOS)
+            log.info(f"    Resized {w}x{h} -> {new_w}x{new_h} to fit GPU, 4x -> {new_w*4}x{new_h*4}")
+
+        buf = io.BytesIO()
+        img_pil.save(buf, format="PNG")
+        image_bytes = buf.getvalue()
         b64_image = base64.b64encode(image_bytes).decode()
         data_uri = f"data:image/png;base64,{b64_image}"
 
-        # Start prediction
-        resp = await client.post(
-            "https://api.replicate.com/v1/predictions",
-            headers={
-                "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "version": UPSCALE_MODEL.split(":")[1],
-                "input": {"image": data_uri, "scale": 4},
-            },
-            timeout=30.0,
-        )
-        resp.raise_for_status()
-        prediction = resp.json()
-        prediction_id = prediction["id"]
+        # Submit with retry on 429
+        for attempt in range(3):
+            resp = await client.post(
+                "https://api.replicate.com/v1/predictions",
+                headers={
+                    "Authorization": f"Bearer {REPLICATE_API_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "version": UPSCALE_MODEL.split(":")[1],
+                    "input": {"image": data_uri, "scale": scale},
+                },
+                timeout=30.0,
+            )
+            if resp.status_code == 429:
+                wait = 10 * (attempt + 1)
+                log.warning(f"    429 rate limit, waiting {wait}s...")
+                await asyncio.sleep(wait)
+                continue
+            resp.raise_for_status()
+            break
+        else:
+            return {"id": img_id, "listing_id": listing_id, "status": "error", "error": "429 after 3 retries"}
+        prediction_id = resp.json()["id"]
 
-        # Poll for completion
-        for _ in range(120):  # max ~4 min
+        # Poll for completion (max ~4 min)
+        for _ in range(120):
             await asyncio.sleep(2)
             poll_resp = await client.get(
                 f"https://api.replicate.com/v1/predictions/{prediction_id}",
@@ -227,7 +256,6 @@ async def upscale_image(
                 if isinstance(output_url, list):
                     output_url = output_url[0]
 
-                # Download upscaled image
                 dl_resp = await client.get(output_url, timeout=120.0, follow_redirects=True)
                 dl_resp.raise_for_status()
                 upscaled_path.write_bytes(dl_resp.content)
@@ -240,8 +268,7 @@ async def upscale_image(
                 return {"id": img_id, "listing_id": listing_id, "status": "ok", "upscaled_path": str(upscaled_path)}
 
             elif result["status"] == "failed":
-                error = result.get("error", "unknown error")
-                return {"id": img_id, "listing_id": listing_id, "status": "error", "error": f"replicate failed: {error}"}
+                return {"id": img_id, "listing_id": listing_id, "status": "error", "error": f"replicate: {result.get('error','')}"}
 
         return {"id": img_id, "listing_id": listing_id, "status": "error", "error": "replicate timeout"}
 
@@ -256,8 +283,7 @@ async def upscale_image(
 
 async def run_pipeline():
     if not REPLICATE_API_TOKEN:
-        log.error("REPLICATE_API or REPLICATE_API_TOKEN not set in environment")
-        sys.exit(1)
+        log.warning("REPLICATE_API not set — backup only, no upscale")
 
     pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=5)
     await ensure_columns(pool)
@@ -295,38 +321,34 @@ async def run_pipeline():
 
             await asyncio.sleep(0.5)
 
-    # --- Phase 2: Upscale ---
+    # --- Phase 2: Upscale (one at a time to avoid rate limits) ---
     to_upscale = await get_images_to_upscale(pool)
     log.info(f"Phase 2: {len(to_upscale)} images to upscale")
 
     async with httpx.AsyncClient() as client:
-        for batch_start in range(0, len(to_upscale), BATCH_SIZE):
-            batch = to_upscale[batch_start:batch_start + BATCH_SIZE]
-            tasks = [upscale_image(client, pool, img) for img in batch]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        for idx, img in enumerate(to_upscale, 1):
+            total = len(to_upscale)
+            try:
+                res = await upscale_image(client, pool, img)
+            except Exception as e:
+                log.error(f"  {idx}/{total} upscale EXCEPTION: {e}")
+                continue
 
-            for i, res in enumerate(results):
-                idx = batch_start + i + 1
-                total = len(to_upscale)
-                if isinstance(res, Exception):
-                    log.error(f"  {idx}/{total} upscale EXCEPTION: {res}")
-                elif res["status"] == "ok":
-                    log.info(f"  {idx}/{total} upscaled: listing_id={res['listing_id']}")
-                elif res["status"] == "exists":
-                    log.info(f"  {idx}/{total} already upscaled: listing_id={res['listing_id']}")
-                else:
-                    log.error(f"  {idx}/{total} upscale failed: listing_id={res['listing_id']} -- {res.get('error','')}")
+            if res["status"] == "ok":
+                log.info(f"  {idx}/{total} upscaled: listing_id={res['listing_id']}")
+            elif res["status"] == "exists":
+                log.info(f"  {idx}/{total} already upscaled: listing_id={res['listing_id']}")
+            else:
+                log.error(f"  {idx}/{total} upscale failed: listing_id={res['listing_id']} -- {res.get('error','')}")
 
-                # Merge upscale result into report
-                if not isinstance(res, Exception):
-                    existing = next((r for r in report if r.get("id") == res["id"]), None)
-                    if existing:
-                        existing["upscaled_path"] = res.get("upscaled_path", "")
-                        existing["upscale_status"] = res["status"]
-                    else:
-                        report.append(res)
+            existing = next((r for r in report if r.get("id") == res["id"]), None)
+            if existing:
+                existing["upscaled_path"] = res.get("upscaled_path", "")
+                existing["upscale_status"] = res["status"]
+            else:
+                report.append(res)
 
-            await asyncio.sleep(1)  # rate limit between batches
+            await asyncio.sleep(5)  # rate limit between images
 
     # --- Phase 3: Report ---
     report_path = REPORT_DIR / "upscale_report.csv"

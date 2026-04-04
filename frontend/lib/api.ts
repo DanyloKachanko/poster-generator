@@ -3265,3 +3265,38 @@ export async function importEtsyCsv(file: File): Promise<ImportCsvResult> {
   }
   return res.json();
 }
+
+// --- Digital Downloads ---
+
+export interface DigitalDownloadListing {
+  id: number;
+  title: string;
+  etsy_listing_id: string;
+  thumbnail: string;
+  has_upscale: boolean;
+  orig_resolution: string;
+  upscaled_resolution: string;
+  is_digital: boolean;
+}
+
+export interface DigitalDownloadsResponse {
+  listings: DigitalDownloadListing[];
+  total: number;
+  upscaled: number;
+}
+
+export async function getDigitalDownloads(): Promise<DigitalDownloadsResponse> {
+  const res = await apiFetch(`${getApiUrl()}/etsy/digital-downloads`);
+  if (!res.ok) throw new Error('Failed to load digital downloads');
+  return res.json();
+}
+
+export async function createDigitalListings(listingIds: string[]): Promise<{ status: string; message: string }> {
+  const res = await apiFetch(`${getApiUrl()}/etsy/create-digital-listings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ listing_ids: listingIds }),
+  });
+  if (!res.ok) throw new Error('Failed to create digital listings');
+  return res.json();
+}

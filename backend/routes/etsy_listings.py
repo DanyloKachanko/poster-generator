@@ -292,6 +292,98 @@ async def export_etsy_csv():
     )
 
 
+# --- Digital Downloads ---
+
+@router.get("/etsy/digital-downloads")
+async def get_digital_downloads_overview():
+    """Get all active listings with their upscale status for digital download management."""
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT p.id, p.title, p.etsy_listing_id, p.image_url, p.preferred_mockup_url,
+                   gi.id as gi_id, gi.url as original_url, gi.upscaled_path, gi.upscaled_url,
+                   gi.upscaled_width, gi.upscaled_height,
+                   g.width as orig_width, g.height as orig_height
+            FROM products p
+            JOIN generated_images gi ON gi.product_id = p.id
+            JOIN generations g ON g.generation_id = gi.generation_id
+            WHERE p.etsy_listing_id IS NOT NULL
+              AND p.status != 'deleted'
+            ORDER BY p.id
+            """
+        )
+
+    listings = []
+    for r in rows:
+        has_upscale = bool(r["upscaled_path"])
+        orig_w = r["orig_width"] or 0
+        orig_h = r["orig_height"] or 0
+        up_w = r["upscaled_width"] or 0
+        up_h = r["upscaled_height"] or 0
+
+        listings.append({
+            "id": r["id"],
+            "title": r["title"],
+            "etsy_listing_id": r["etsy_listing_id"],
+            "thumbnail": f"/etsy/upscaled-image/{r['gi_id']}" if has_upscale else (r["original_url"] or r["image_url"] or ""),
+            "has_upscale": has_upscale,
+            "orig_resolution": f"{orig_w}x{orig_h}",
+            "upscaled_resolution": f"{up_w}x{up_h}" if has_upscale else "",
+            "is_digital": False,
+        })
+
+    return {
+        "listings": listings,
+        "total": len(listings),
+        "upscaled": sum(1 for l in listings if l["has_upscale"]),
+    }
+
+
+@router.get("/etsy/upscaled-image/{image_id}")
+async def serve_upscaled_image(image_id: int):
+    """Serve an upscaled image file from local storage."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        path = await conn.fetchval(
+            "SELECT upscaled_path FROM generated_images WHERE id = $1", image_id
+        )
+    if not path:
+        raise HTTPException(status_code=404, detail="No upscaled image")
+
+    from pathlib import Path
+    # DB stores /var/www/dovshop/media/..., container mounts at /media
+    file_path = Path(path.replace("/var/www/dovshop/media", "/media"))
+    if not file_path.exists():
+        # Try original path as fallback (running outside container)
+        file_path = Path(path)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    return StreamingResponse(
+        open(file_path, "rb"),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+class CreateDigitalRequest(BaseModel):
+    listing_ids: List[str] = Field(..., min_length=1)
+
+
+@router.post("/etsy/create-digital-listings")
+async def create_digital_listings(request: CreateDigitalRequest):
+    """Placeholder: create digital download listings from upscaled images."""
+    # TODO: implement ZIP creation + Etsy digital listing creation
+    return {
+        "status": "not_implemented",
+        "message": f"Would create digital listings for {len(request.listing_ids)} products. Feature coming soon.",
+        "listing_ids": request.listing_ids,
+    }
+
+
 # --- Image Quality Audit ---
 
 @router.post("/etsy/image-audit")
