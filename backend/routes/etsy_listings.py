@@ -293,6 +293,116 @@ async def export_etsy_csv():
     )
 
 
+# --- Digital Export/Import ---
+
+@router.get("/etsy/digital-export-csv")
+async def export_digital_csv():
+    """Export only digital listings as CSV."""
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        digital_ids = await conn.fetch(
+            "SELECT digital_etsy_id FROM products WHERE digital_etsy_id IS NOT NULL"
+        )
+    digital_set = {r["digital_etsy_id"] for r in digital_ids}
+
+    if not digital_set:
+        raise HTTPException(status_code=404, detail="No digital listings found")
+
+    all_listings = await etsy.get_all_listings(access_token, shop_id, state="draft")
+    # Also fetch active
+    active = await etsy.get_all_listings(access_token, shop_id, state="active")
+    all_listings.extend(active)
+
+    digital_listings = [li for li in all_listings if str(li.get("listing_id", "")) in digital_set]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["listing_id", "title", "description", "tags", "price", "state"])
+
+    for li in digital_listings:
+        tags = ", ".join(li.get("tags") or [])
+        price_raw = li.get("price", {})
+        if isinstance(price_raw, dict):
+            price = price_raw.get("amount", 0) / (price_raw.get("divisor", 100) or 100)
+        else:
+            price = price_raw or 0
+        writer.writerow([
+            li.get("listing_id", ""),
+            li.get("title", ""),
+            li.get("description", ""),
+            tags,
+            f"{price:.2f}",
+            li.get("state", "draft"),
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=digital_listings.csv"},
+    )
+
+
+@router.post("/etsy/digital-import-csv")
+async def import_digital_csv(file: UploadFile = File(...)):
+    """Import CSV to update digital listings (title, description, tags)."""
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        digital_ids = await conn.fetch(
+            "SELECT digital_etsy_id FROM products WHERE digital_etsy_id IS NOT NULL"
+        )
+    digital_set = {r["digital_etsy_id"] for r in digital_ids}
+
+    content = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+
+    rows = list(reader)
+    results = []
+    for i, row in enumerate(rows):
+        listing_id = row.get("listing_id", "").strip()
+        if not listing_id:
+            results.append({"row": i + 1, "status": "skipped", "reason": "no listing_id"})
+            continue
+        if listing_id not in digital_set:
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "skipped", "reason": "not a digital listing"})
+            continue
+
+        update_data = {}
+        title = row.get("title", "").strip()
+        if title:
+            update_data["title"] = title[:140]
+        description = row.get("description", "").strip()
+        if description:
+            update_data["description"] = description
+        tags_str = row.get("tags", "").strip()
+        if tags_str:
+            tags = [t.strip()[:20] for t in tags_str.split(",") if t.strip()][:13]
+            update_data["tags"] = tags
+
+        if not update_data:
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "skipped", "reason": "nothing to update"})
+            continue
+
+        try:
+            await etsy.update_listing(access_token, shop_id, listing_id, update_data)
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "ok"})
+        except httpx.HTTPStatusError as e:
+            body = e.response.text[:200] if e.response else ""
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "error", "error": f"{e} | {body}"})
+        except Exception as e:
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "error", "error": str(e)})
+
+        await asyncio.sleep(0.3)
+
+    ok = sum(1 for r in results if r["status"] == "ok")
+    errors = sum(1 for r in results if r["status"] == "error")
+    return {"total": len(rows), "updated": ok, "errors": errors, "results": results}
+
+
 # --- Digital Downloads ---
 
 @router.get("/etsy/digital-downloads")

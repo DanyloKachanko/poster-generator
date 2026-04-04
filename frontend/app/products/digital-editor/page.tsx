@@ -198,6 +198,51 @@ export default function DigitalEditorPage() {
     if (activeId) selectListing(activeId);
   };
 
+  const handleExportCsv = async () => {
+    try {
+      const res = await authFetch(`${getApiUrl()}/etsy/digital-export-csv`);
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'digital_listings.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Export failed');
+    }
+  };
+
+  const handleImportCsv = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setBulkAction('import');
+      setError(null);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await authFetch(`${getApiUrl()}/etsy/digital-import-csv`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (!res.ok) throw new Error('Import failed');
+        const data = await res.json();
+        setSuccess(`Import: ${data.updated} updated, ${data.errors} errors`);
+        if (activeId) selectListing(activeId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Import failed');
+      } finally {
+        setBulkAction(null);
+      }
+    };
+    input.click();
+  };
+
   // --- Render ---
 
   if (isLoading) {
@@ -226,8 +271,24 @@ export default function DigitalEditorPage() {
           >
             {bulkAction === 'copy-mockups'
               ? `Copying... ${bulkProgress.done}/${bulkProgress.total}`
-              : 'Copy all mockups from physical'}
+              : 'Copy all mockups'}
           </button>
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleExportCsv}
+              disabled={!!bulkAction}
+              className="flex-1 px-2 py-1.5 bg-dark-hover text-gray-200 rounded text-xs hover:bg-dark-border disabled:opacity-50"
+            >
+              Export CSV
+            </button>
+            <button
+              onClick={handleImportCsv}
+              disabled={!!bulkAction}
+              className="flex-1 px-2 py-1.5 bg-dark-hover text-gray-200 rounded text-xs hover:bg-dark-border disabled:opacity-50"
+            >
+              {bulkAction === 'import' ? 'Importing...' : 'Import CSV'}
+            </button>
+          </div>
         </div>
 
         {/* Bulk progress */}
