@@ -358,6 +358,47 @@ async def download_digital_zip(listing_id: str):
     )
 
 
+@router.post("/etsy/digital-copy-mockups/{physical_listing_id}")
+async def copy_mockups_to_digital(physical_listing_id: str):
+    """Copy mockup images from physical listing to its digital listing."""
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        digital_id = await conn.fetchval(
+            "SELECT digital_etsy_id FROM products WHERE etsy_listing_id = $1",
+            physical_listing_id,
+        )
+    if not digital_id:
+        raise HTTPException(status_code=404, detail="No digital listing found for this product")
+
+    # Get images from physical listing
+    phys_images = await etsy.get_listing_images(access_token, physical_listing_id)
+    source_imgs = sorted(phys_images.get("results", []), key=lambda x: x.get("rank", 999))
+
+    copied = 0
+    async with httpx.AsyncClient() as client:
+        for img in source_imgs:
+            url = img.get("url_fullxfull", "")
+            if not url:
+                continue
+            try:
+                resp = await client.get(url, timeout=30.0, follow_redirects=True)
+                if resp.status_code != 200:
+                    continue
+                await etsy.upload_listing_image(
+                    access_token, shop_id, digital_id,
+                    resp.content, f"mockup_{copied + 1}.jpg",
+                    rank=copied + 1,
+                )
+                copied += 1
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                logger.warning(f"copy-mockup: failed for {physical_listing_id}: {e}")
+
+    return {"copied": copied, "digital_listing_id": digital_id}
+
+
 @router.get("/etsy/upscaled-image/{image_id}")
 async def serve_upscaled_image(image_id: int):
     """Serve an upscaled image file from local storage."""
