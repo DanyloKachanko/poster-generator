@@ -305,7 +305,7 @@ async def get_digital_downloads_overview():
         rows = await conn.fetch(
             """
             SELECT p.id, p.title, p.etsy_listing_id, p.image_url, p.preferred_mockup_url,
-                   p.digital_enabled,
+                   p.digital_enabled, p.digital_etsy_id,
                    gi.id as gi_id, gi.url as original_url, gi.upscaled_path, gi.upscaled_url,
                    gi.upscaled_width, gi.upscaled_height,
                    g.width as orig_width, g.height as orig_height
@@ -335,6 +335,7 @@ async def get_digital_downloads_overview():
             "orig_resolution": f"{orig_w}x{orig_h}",
             "upscaled_resolution": f"{up_w}x{up_h}" if has_upscale else "",
             "is_digital": bool(r["digital_enabled"]),
+            "digital_etsy_id": r.get("digital_etsy_id") or "",
         })
 
     return {
@@ -342,6 +343,19 @@ async def get_digital_downloads_overview():
         "total": len(listings),
         "upscaled": sum(1 for l in listings if l["has_upscale"]),
     }
+
+
+@router.get("/etsy/digital-zip/{listing_id}")
+async def download_digital_zip(listing_id: str):
+    """Download the digital ZIP file for a listing."""
+    zip_path = DIGITAL_DIR / f"{listing_id}.zip"
+    if not zip_path.exists():
+        raise HTTPException(status_code=404, detail="ZIP not found")
+    return StreamingResponse(
+        open(zip_path, "rb"),
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={listing_id}_printable.zip"},
+    )
 
 
 @router.get("/etsy/upscaled-image/{image_id}")

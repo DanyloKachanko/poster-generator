@@ -355,6 +355,24 @@ export default function DigitalDownloadsPage() {
                     <span className="text-[10px] text-gray-500">Not upscaled</span>
                   )}
                 </div>
+                {listing.digital_etsy_id && (
+                  <div className="flex items-center gap-2 mt-1.5" onClick={(e) => e.stopPropagation()}>
+                    <a
+                      href={`${getApiUrl()}/etsy/digital-zip/${listing.etsy_listing_id}`}
+                      className="text-[10px] text-accent hover:underline"
+                    >
+                      ZIP
+                    </a>
+                    <a
+                      href={`https://www.etsy.com/listing/${listing.digital_etsy_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-accent hover:underline"
+                    >
+                      Etsy
+                    </a>
+                  </div>
+                )}
               </div>
             </div>
           );

@@ -3277,6 +3277,7 @@ export interface DigitalDownloadListing {
   orig_resolution: string;
   upscaled_resolution: string;
   is_digital: boolean;
+  digital_etsy_id: string;
 }
 
 export interface DigitalDownloadsResponse {
