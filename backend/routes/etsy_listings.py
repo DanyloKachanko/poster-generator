@@ -373,15 +373,15 @@ async def import_digital_csv(file: UploadFile = File(...)):
             continue
 
         update_data = {}
-        title = row.get("title", "").strip()
+        title = html_mod.unescape(row.get("title", "").strip())
         if title:
             update_data["title"] = title[:140]
-        description = row.get("description", "").strip()
+        description = html_mod.unescape(row.get("description", "").strip())
         if description:
             update_data["description"] = description
         tags_str = row.get("tags", "").strip()
         if tags_str:
-            tags = [t.strip()[:20] for t in tags_str.split(",") if t.strip()][:13]
+            tags = [html_mod.unescape(t.strip())[:20] for t in tags_str.split(",") if t.strip()][:13]
             update_data["tags"] = tags
 
         if not update_data:
@@ -998,15 +998,15 @@ async def import_etsy_csv(file: UploadFile = File(...)):
             continue
 
         update_data = {}
-        title = row.get("title", "").strip()
+        title = html_mod.unescape(row.get("title", "").strip())
         if title:
             update_data["title"] = title[:140]
-        description = row.get("description", "").strip()
+        description = html_mod.unescape(row.get("description", "").strip())
         if description:
             update_data["description"] = description
 
         tag_issues = []
-        tags_str = row.get("tags", "").strip()
+        tags_str = html_mod.unescape(row.get("tags", "").strip())
         if tags_str:
             validation = validate_etsy_tags(tags_str)
             update_data["tags"] = validation["cleaned"]
