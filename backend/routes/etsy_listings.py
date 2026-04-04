@@ -395,22 +395,50 @@ async def toggle_digital_enabled(request: DigitalToggleRequest):
 
 DIGITAL_TASK_ID = "create_digital_listings"
 
-DIGITAL_SIZES = [
-    ("print_2x3.jpg", 2400, 3600),   # 2:3
-    ("print_4x5.jpg", 2400, 3000),   # 4:5
-    ("print_square.jpg", 3000, 3000), # 1:1
-]
+# Sizes per aspect ratio — native ratio only, 3 sizes each, no cropping
+RATIO_SIZES = {
+    "2:3": [
+        ("print_20x30.jpg", 6000, 9000),
+        ("print_16x24.jpg", 4800, 7200),
+        ("print_8x12.jpg",  2400, 3600),
+    ],
+    "4:5": [
+        ("print_24x30.jpg", 7200, 9000),
+        ("print_16x20.jpg", 4800, 6000),
+        ("print_8x10.jpg",  2400, 3000),
+    ],
+    "3:4": [
+        ("print_18x24.jpg", 5400, 7200),
+        ("print_12x16.jpg", 3600, 4800),
+        ("print_9x12.jpg",  2700, 3600),
+    ],
+    "1:1": [
+        ("print_20x20.jpg", 6000, 6000),
+        ("print_16x16.jpg", 4800, 4800),
+        ("print_10x10.jpg", 3000, 3000),
+    ],
+    "11:14": [
+        ("print_22x28.jpg", 6600, 8400),
+        ("print_11x14.jpg", 3300, 4200),
+        ("print_8x10.jpg",  2400, 3060),
+    ],
+}
 
 DIGITAL_DIR = Path("/media/digital")
-DIGITAL_DIR_HOST = Path("/var/www/dovshop/media/digital")
 
 
-def _create_size_variants(upscaled_path: str, listing_id: str) -> bytes:
-    """Create ZIP with 3 size variants from upscaled image. Returns ZIP bytes."""
+def _detect_ratio(w: int, h: int) -> str:
+    """Detect closest standard ratio from image dimensions."""
+    r = round(w / h, 2)
+    ratios = {0.67: "2:3", 0.75: "3:4", 0.80: "4:5", 0.79: "11:14", 1.00: "1:1"}
+    return ratios.get(r, "4:5")  # fallback to 4:5
+
+
+def _create_size_variants(upscaled_path: str, listing_id: str) -> tuple[bytes, str, list[str]]:
+    """Create ZIP with 3 size variants (native ratio). Returns (zip_bytes, ratio, size_names)."""
     import zipfile
     from PIL import Image
 
-    # Resolve container vs host path
     src = Path(upscaled_path.replace("/var/www/dovshop/media", "/media"))
     if not src.exists():
         src = Path(upscaled_path)
@@ -419,32 +447,20 @@ def _create_size_variants(upscaled_path: str, listing_id: str) -> bytes:
     if img.mode != "RGB":
         img = img.convert("RGB")
 
+    ratio = _detect_ratio(img.size[0], img.size[1])
+    sizes = RATIO_SIZES.get(ratio, RATIO_SIZES["4:5"])
+
+    size_names = []
     zip_buf = io.BytesIO()
     with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for filename, target_w, target_h in DIGITAL_SIZES:
-            # Center-crop to target aspect ratio, then resize
-            src_w, src_h = img.size
-            target_ratio = target_w / target_h
-            src_ratio = src_w / src_h
-
-            if src_ratio > target_ratio:
-                # Source wider: crop width
-                new_w = int(src_h * target_ratio)
-                left = (src_w - new_w) // 2
-                cropped = img.crop((left, 0, left + new_w, src_h))
-            else:
-                # Source taller: crop height
-                new_h = int(src_w / target_ratio)
-                top = (src_h - new_h) // 2
-                cropped = img.crop((0, top, src_w, top + new_h))
-
-            resized = cropped.resize((target_w, target_h), Image.LANCZOS)
-
+        for filename, target_w, target_h in sizes:
+            resized = img.resize((target_w, target_h), Image.LANCZOS)
             jpg_buf = io.BytesIO()
             resized.save(jpg_buf, format="JPEG", quality=95, dpi=(300, 300))
             zf.writestr(filename, jpg_buf.getvalue())
+            size_names.append(filename.replace(".jpg", "").replace("print_", ""))
 
-    return zip_buf.getvalue()
+    return zip_buf.getvalue(), ratio, size_names
 
 
 @router.post("/etsy/create-digital-listings")
@@ -508,8 +524,8 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
             title = prod["title"] or ""
 
             try:
-                # 1. Create ZIP with size variants
-                zip_bytes = _create_size_variants(prod["upscaled_path"], listing_id)
+                # 1. Create ZIP with size variants (native ratio, no crop)
+                zip_bytes, ratio, size_names = _create_size_variants(prod["upscaled_path"], listing_id)
 
                 zip_path = DIGITAL_DIR / f"{listing_id}.zip"
                 zip_path.write_bytes(zip_bytes)
@@ -519,17 +535,16 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
                 tags = prod["tags"] or []
                 if isinstance(tags, str):
                     tags = [t.strip() for t in tags.split(",") if t.strip()]
-                # Add digital-specific tags
                 for dt in ["digital download", "printable wall art", "instant download"]:
                     if dt not in [t.lower() for t in tags] and len(tags) < 13:
                         tags.append(dt)
 
+                sizes_text = "\n".join(f"- {s.replace('x', ' x ')} inches" for s in size_names)
                 description = (prod["description"] or "") + "\n\n" + (
                     "INSTANT DOWNLOAD - No physical item will be shipped.\n\n"
-                    "You will receive a ZIP file containing 3 high-resolution JPG files:\n"
-                    "- 2400 x 3600 px (2:3 ratio) - fits 8x12, 16x24, 20x30\n"
-                    "- 2400 x 3000 px (4:5 ratio) - fits 8x10, 16x20, 24x30\n"
-                    "- 3000 x 3000 px (1:1 square) - fits any square frame\n\n"
+                    f"Aspect ratio: {ratio}\n"
+                    f"You will receive a ZIP file containing 3 high-resolution JPG files:\n"
+                    f"{sizes_text}\n\n"
                     "All files are 300 DPI, print-ready quality."
                 )
 
