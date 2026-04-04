@@ -62,7 +62,8 @@ export default function DigitalDownloadsPage() {
   );
   const hasChanges = useMemo(() => {
     if (selected.size !== savedIds.size) return true;
-    for (const id of selected) if (!savedIds.has(id)) return true;
+    const selectedArr = Array.from(selected);
+    for (let i = 0; i < selectedArr.length; i++) if (!savedIds.has(selectedArr[i])) return true;
     return false;
   }, [selected, savedIds]);
 
@@ -72,8 +73,8 @@ export default function DigitalDownloadsPage() {
     setSuccessMsg(null);
     try {
       // Enable newly selected
-      const toEnable = [...selected].filter((id) => !savedIds.has(id));
-      const toDisable = [...savedIds].filter((id) => !selected.has(id));
+      const toEnable = Array.from(selected).filter((id) => !savedIds.has(id));
+      const toDisable = Array.from(savedIds).filter((id) => !selected.has(id));
 
       if (toEnable.length > 0) {
         await toggleDigitalEnabled(toEnable, true);
