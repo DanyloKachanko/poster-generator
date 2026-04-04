@@ -328,7 +328,7 @@ async def get_digital_downloads_overview():
             "id": r["id"],
             "title": r["title"],
             "etsy_listing_id": r["etsy_listing_id"],
-            "thumbnail": f"/etsy/upscaled-image/{r['gi_id']}" if has_upscale else (r["original_url"] or r["image_url"] or ""),
+            "thumbnail": r["original_url"] or r["image_url"] or "",
             "has_upscale": has_upscale,
             "orig_resolution": f"{orig_w}x{orig_h}",
             "upscaled_resolution": f"{up_w}x{up_h}" if has_upscale else "",
