@@ -1043,6 +1043,17 @@ async def import_etsy_csv(file: UploadFile = File(...)):
     }
 
 
+@router.get("/etsy/listing/{listing_id}")
+async def get_single_listing(listing_id: str):
+    """Get a single listing by ID (works for draft and active)."""
+    access_token, shop_id = await ensure_etsy_token()
+    try:
+        listing = await etsy.get_listing(access_token, listing_id)
+        return listing
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.get("/etsy/shop-sections")
 async def get_etsy_shop_sections():
     """Get shop sections for the connected Etsy shop."""

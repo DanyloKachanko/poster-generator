@@ -67,26 +67,20 @@ export default function DigitalEditorPage() {
     setDirty(false);
 
     try {
-      const [listingsRes, imagesData] = await Promise.all([
-        authFetch(`${getApiUrl()}/etsy/listings`).then((r) => r.json()),
+      const [li, imagesData] = await Promise.all([
+        authFetch(`${getApiUrl()}/etsy/listing/${digitalEtsyId}`).then((r) => r.json()),
         getEtsyListingImages(digitalEtsyId),
       ]);
 
-      const li = (listingsRes.listings || []).find(
-        (l: any) => String(l.listing_id) === digitalEtsyId
-      );
-
-      if (li) {
-        setTitle(li.title || '');
-        setDescription(li.description || '');
-        setTags(li.tags || []);
-      }
+      setTitle(li.title || '');
+      setDescription(li.description || '');
+      setTags(li.tags || []);
       setImages(
         (imagesData.results || []).sort(
           (a: EtsyListingImage, b: EtsyListingImage) => a.rank - b.rank
         )
       );
-      setDetail({ title: li?.title || '', description: li?.description || '', tags: li?.tags || [], images: imagesData.results || [] });
+      setDetail({ title: li.title || '', description: li.description || '', tags: li.tags || [], images: imagesData.results || [] });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
