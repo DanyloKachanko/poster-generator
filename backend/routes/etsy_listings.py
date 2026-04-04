@@ -1,4 +1,5 @@
 import csv
+import html as html_mod
 import io
 import logging
 import re
@@ -263,7 +264,7 @@ async def export_etsy_csv():
     writer.writerow(["listing_id", "title", "description", "tags", "price", "quantity", "tag_issues"])
 
     for li in listings:
-        raw_tags = li.get("tags") or []
+        raw_tags = [html_mod.unescape(t) for t in (li.get("tags") or [])]
         tags_str = ", ".join(raw_tags)
         validation = validate_etsy_tags(tags_str)
         tag_issues = "; ".join(validation["issues"]) if validation["issues"] else ""
@@ -277,8 +278,8 @@ async def export_etsy_csv():
             price = price_raw or 0
         writer.writerow([
             li.get("listing_id", ""),
-            li.get("title", ""),
-            li.get("description", ""),
+            html_mod.unescape(li.get("title", "")),
+            html_mod.unescape(li.get("description", "")),
             tags_str,
             f"{price:.2f}",
             li.get("quantity", 0),
@@ -322,7 +323,7 @@ async def export_digital_csv():
     writer.writerow(["listing_id", "title", "description", "tags", "price", "state"])
 
     for li in digital_listings:
-        tags = ", ".join(li.get("tags") or [])
+        tags = ", ".join(html_mod.unescape(t) for t in (li.get("tags") or []))
         price_raw = li.get("price", {})
         if isinstance(price_raw, dict):
             price = price_raw.get("amount", 0) / (price_raw.get("divisor", 100) or 100)
@@ -330,8 +331,8 @@ async def export_digital_csv():
             price = price_raw or 0
         writer.writerow([
             li.get("listing_id", ""),
-            li.get("title", ""),
-            li.get("description", ""),
+            html_mod.unescape(li.get("title", "")),
+            html_mod.unescape(li.get("description", "")),
             tags,
             f"{price:.2f}",
             li.get("state", "draft"),
@@ -1049,6 +1050,13 @@ async def get_single_listing(listing_id: str):
     access_token, shop_id = await ensure_etsy_token()
     try:
         listing = await etsy.get_listing(access_token, listing_id)
+        # Decode HTML entities
+        if listing.get("title"):
+            listing["title"] = html_mod.unescape(listing["title"])
+        if listing.get("description"):
+            listing["description"] = html_mod.unescape(listing["description"])
+        if listing.get("tags"):
+            listing["tags"] = [html_mod.unescape(t) for t in listing["tags"]]
         return listing
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
