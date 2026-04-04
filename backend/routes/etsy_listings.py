@@ -304,6 +304,7 @@ async def get_digital_downloads_overview():
         rows = await conn.fetch(
             """
             SELECT p.id, p.title, p.etsy_listing_id, p.image_url, p.preferred_mockup_url,
+                   p.digital_enabled,
                    gi.id as gi_id, gi.url as original_url, gi.upscaled_path, gi.upscaled_url,
                    gi.upscaled_width, gi.upscaled_height,
                    g.width as orig_width, g.height as orig_height
@@ -332,7 +333,7 @@ async def get_digital_downloads_overview():
             "has_upscale": has_upscale,
             "orig_resolution": f"{orig_w}x{orig_h}",
             "upscaled_resolution": f"{up_w}x{up_h}" if has_upscale else "",
-            "is_digital": False,
+            "is_digital": bool(r["digital_enabled"]),
         })
 
     return {
@@ -369,18 +370,23 @@ async def serve_upscaled_image(image_id: int):
     )
 
 
-class CreateDigitalRequest(BaseModel):
-    listing_ids: List[str] = Field(..., min_length=1)
+class DigitalToggleRequest(BaseModel):
+    product_ids: List[int] = Field(..., min_length=1)
+    enabled: bool = True
 
 
-@router.post("/etsy/create-digital-listings")
-async def create_digital_listings(request: CreateDigitalRequest):
-    """Placeholder: create digital download listings from upscaled images."""
-    # TODO: implement ZIP creation + Etsy digital listing creation
+@router.post("/etsy/digital-toggle")
+async def toggle_digital_enabled(request: DigitalToggleRequest):
+    """Mark/unmark products for digital download creation."""
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE products SET digital_enabled = $1 WHERE id = ANY($2::int[])",
+            request.enabled, request.product_ids,
+        )
     return {
-        "status": "not_implemented",
-        "message": f"Would create digital listings for {len(request.listing_ids)} products. Feature coming soon.",
-        "listing_ids": request.listing_ids,
+        "updated": len(request.product_ids),
+        "enabled": request.enabled,
     }
 
 

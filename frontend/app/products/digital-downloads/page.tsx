@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   getApiUrl,
   getDigitalDownloads,
-  createDigitalListings,
+  toggleDigitalEnabled,
   DigitalDownloadListing,
 } from '@/lib/api';
 
@@ -12,61 +12,82 @@ export default function DigitalDownloadsPage() {
   const [listings, setListings] = useState<DigitalDownloadListing[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [creating, setCreating] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = () => {
+    setIsLoading(true);
     getDigitalDownloads()
-      .then((data) => setListings(data.listings))
+      .then((data) => {
+        setListings(data.listings);
+        // Init selection from saved state
+        setSelected(new Set(data.listings.filter((l) => l.is_digital).map((l) => l.id)));
+      })
       .catch((e) => setError(e.message))
       .finally(() => setIsLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { load(); }, []);
 
   const upscaledListings = useMemo(
     () => listings.filter((l) => l.has_upscale),
     [listings]
   );
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = (id: number) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
+    setSuccessMsg(null);
   };
 
   const selectAll = () => {
-    setSelected(new Set(upscaledListings.map((l) => l.etsy_listing_id)));
+    setSelected(new Set(upscaledListings.map((l) => l.id)));
+    setSuccessMsg(null);
   };
 
   const deselectAll = () => {
     setSelected(new Set());
+    setSuccessMsg(null);
   };
 
-  const handleCreate = async () => {
-    if (selected.size === 0) return;
-    if (
-      !confirm(
-        `Create digital listings for ${selected.size} products? Estimated cost: $${(selected.size * 0.2).toFixed(2)}`
-      )
-    )
-      return;
+  // Compute diff from saved state
+  const savedIds = useMemo(
+    () => new Set(listings.filter((l) => l.is_digital).map((l) => l.id)),
+    [listings]
+  );
+  const hasChanges = useMemo(() => {
+    if (selected.size !== savedIds.size) return true;
+    for (const id of selected) if (!savedIds.has(id)) return true;
+    return false;
+  }, [selected, savedIds]);
 
-    setCreating(true);
+  const handleSave = async () => {
+    setSaving(true);
     setError(null);
-    setResult(null);
+    setSuccessMsg(null);
     try {
-      const data = await createDigitalListings(Array.from(selected));
-      setResult(data.message);
+      // Enable newly selected
+      const toEnable = [...selected].filter((id) => !savedIds.has(id));
+      const toDisable = [...savedIds].filter((id) => !selected.has(id));
+
+      if (toEnable.length > 0) {
+        await toggleDigitalEnabled(toEnable, true);
+      }
+      if (toDisable.length > 0) {
+        await toggleDigitalEnabled(toDisable, false);
+      }
+
+      setSuccessMsg(`Saved: ${selected.size} products marked for digital downloads`);
+      load(); // Refresh
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed');
+      setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
-      setCreating(false);
+      setSaving(false);
     }
   };
 
@@ -79,7 +100,6 @@ export default function DigitalDownloadsPage() {
   }
 
   const totalUpscaled = listings.filter((l) => l.has_upscale).length;
-  const notUpscaled = listings.length - totalUpscaled;
 
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -87,11 +107,6 @@ export default function DigitalDownloadsPage() {
         <h1 className="text-2xl font-bold text-gray-100">Digital Downloads</h1>
         <div className="text-sm text-gray-500">
           {totalUpscaled}/{listings.length} upscaled
-          {notUpscaled > 0 && (
-            <span className="text-yellow-400 ml-2">
-              ({notUpscaled} need upscaling)
-            </span>
-          )}
         </div>
       </div>
 
@@ -109,16 +124,12 @@ export default function DigitalDownloadsPage() {
           <div className="text-xs text-gray-500 uppercase">Selected</div>
           <div className="text-2xl font-bold text-accent">
             {selected.size}
-            <span className="text-sm text-gray-500 font-normal">
-              /{totalUpscaled}
-            </span>
+            <span className="text-sm text-gray-500 font-normal">/{totalUpscaled}</span>
           </div>
         </div>
         <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-          <div className="text-xs text-gray-500 uppercase">Est. Cost</div>
-          <div className="text-2xl font-bold text-gray-100">
-            ${(selected.size * 0.2).toFixed(2)}
-          </div>
+          <div className="text-xs text-gray-500 uppercase">Saved</div>
+          <div className="text-2xl font-bold text-gray-100">{savedIds.size}</div>
         </div>
       </div>
 
@@ -137,19 +148,15 @@ export default function DigitalDownloadsPage() {
           Deselect All
         </button>
         <div className="flex-1" />
-        {selected.size > 20 && (
-          <span className="text-yellow-400 text-sm">
-            Warning: {selected.size} selected (recommended max 20 per batch)
-          </span>
+        {hasChanges && (
+          <span className="text-yellow-400 text-sm">Unsaved changes</span>
         )}
         <button
-          onClick={handleCreate}
-          disabled={selected.size === 0 || creating}
+          onClick={handleSave}
+          disabled={!hasChanges || saving}
           className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/80 disabled:opacity-50 transition-colors font-medium"
         >
-          {creating
-            ? 'Creating...'
-            : `Create Digital Listings ($${(selected.size * 0.2).toFixed(2)})`}
+          {saving ? 'Saving...' : `Save Selection (${selected.size})`}
         </button>
       </div>
 
@@ -159,22 +166,23 @@ export default function DigitalDownloadsPage() {
         </div>
       )}
 
-      {result && (
+      {successMsg && (
         <div className="bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg p-3 text-sm">
-          {result}
+          {successMsg}
         </div>
       )}
 
       {/* Listing Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
         {listings.map((listing) => {
-          const isSelected = selected.has(listing.etsy_listing_id);
+          const isSelected = selected.has(listing.id);
           const canSelect = listing.has_upscale;
+          const wasSaved = savedIds.has(listing.id);
 
           return (
             <div
               key={listing.id}
-              onClick={() => canSelect && toggleSelect(listing.etsy_listing_id)}
+              onClick={() => canSelect && toggleSelect(listing.id)}
               className={`bg-dark-card border rounded-lg overflow-hidden transition-all ${
                 canSelect ? 'cursor-pointer hover:border-accent/50' : 'opacity-60 cursor-not-allowed'
               } ${isSelected ? 'border-accent ring-1 ring-accent/30' : 'border-dark-border'}`}
@@ -216,6 +224,15 @@ export default function DigitalDownloadsPage() {
                   </div>
                 )}
 
+                {/* Saved badge */}
+                {wasSaved && (
+                  <div className="absolute top-2 right-2">
+                    <span className="px-1.5 py-0.5 bg-green-500/80 text-white text-[10px] font-medium rounded">
+                      Digital
+                    </span>
+                  </div>
+                )}
+
                 {/* Resolution badge */}
                 {listing.has_upscale && (
                   <div className="absolute bottom-2 right-2">
@@ -236,13 +253,9 @@ export default function DigitalDownloadsPage() {
                     {listing.orig_resolution}
                   </span>
                   {listing.has_upscale ? (
-                    <span className="text-[10px] text-green-400 font-medium">
-                      Ready
-                    </span>
+                    <span className="text-[10px] text-green-400 font-medium">Ready</span>
                   ) : (
-                    <span className="text-[10px] text-gray-500">
-                      Not upscaled
-                    </span>
+                    <span className="text-[10px] text-gray-500">Not upscaled</span>
                   )}
                 </div>
               </div>

@@ -3291,12 +3291,12 @@ export async function getDigitalDownloads(): Promise<DigitalDownloadsResponse> {
   return res.json();
 }
 
-export async function createDigitalListings(listingIds: string[]): Promise<{ status: string; message: string }> {
-  const res = await apiFetch(`${getApiUrl()}/etsy/create-digital-listings`, {
+export async function toggleDigitalEnabled(productIds: number[], enabled: boolean): Promise<{ updated: number }> {
+  const res = await apiFetch(`${getApiUrl()}/etsy/digital-toggle`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ listing_ids: listingIds }),
+    body: JSON.stringify({ product_ids: productIds, enabled }),
   });
-  if (!res.ok) throw new Error('Failed to create digital listings');
+  if (!res.ok) throw new Error('Failed to update digital status');
   return res.json();
 }
