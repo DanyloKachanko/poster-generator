@@ -618,6 +618,42 @@ RATIO_SIZES = {
 DIGITAL_DIR = Path("/media/digital")
 
 
+_DIGITAL_REMOVE_PATTERNS = [
+    r'🖼\s*PRINT DETAILS:.*?(?=\n\n[^\n-]|\Z)',
+    r'📐\s*AVAILABLE SIZES:.*?(?=\n\n[^\n-]|\Z)',
+    r'⚠️?\s*PLEASE NOTE:.*?(?=\n\n[A-Z🎁✨💾♥]|\Z)',
+    r'INSTANT DOWNLOAD\s*[-—].*$',
+    r'Aspect ratio:.*$',
+    r'You will receive a ZIP.*$',
+    r'- \d+ x \d+ inches.*$',
+    r'All files are 300 DPI.*$',
+]
+
+_DIGITAL_SIZE_TEXT = {
+    "2:3": "- 20×30 in (6000×9000 px)\n- 16×24 in (4800×7200 px)\n- 8×12 in (2400×3600 px)",
+    "4:5": "- 24×30 in (7200×9000 px)\n- 16×20 in (4800×6000 px)\n- 8×10 in (2400×3000 px)",
+    "3:4": "- 18×24 in (5400×7200 px)\n- 12×16 in (3600×4800 px)\n- 9×12 in (2700×3600 px)",
+    "1:1": "- 20×20 in (6000×6000 px)\n- 16×16 in (4800×4800 px)\n- 10×10 in (3000×3000 px)",
+}
+
+
+def _build_digital_description(physical_desc: str, ratio: str) -> str:
+    """Clean physical description and append digital download block."""
+    desc = html_mod.unescape(physical_desc)
+    for pattern in _DIGITAL_REMOVE_PATTERNS:
+        desc = re.sub(pattern, '', desc, flags=re.DOTALL | re.MULTILINE)
+    desc = re.sub(r'\n{3,}', '\n\n', desc).strip()
+
+    sizes = _DIGITAL_SIZE_TEXT.get(ratio, _DIGITAL_SIZE_TEXT["4:5"])
+    desc += (
+        f"\n\n💾 INSTANT DOWNLOAD — No physical item will be shipped.\n\n"
+        f"You will receive a ZIP file with 3 print-ready JPG files ({ratio} ratio):\n"
+        f"{sizes}\n\n"
+        f"All files are 300 DPI, ready to print at home or at any print shop."
+    )
+    return desc
+
+
 def _detect_ratio(w: int, h: int) -> str:
     """Detect closest standard ratio from image dimensions."""
     r = round(w / h, 2)
@@ -732,14 +768,7 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
                     if dt not in [t.lower() for t in tags] and len(tags) < 13:
                         tags.append(dt)
 
-                sizes_text = "\n".join(f"- {s.replace('x', ' x ')} inches" for s in size_names)
-                description = (prod["description"] or "") + "\n\n" + (
-                    "INSTANT DOWNLOAD - No physical item will be shipped.\n\n"
-                    f"Aspect ratio: {ratio}\n"
-                    f"You will receive a ZIP file containing 3 high-resolution JPG files:\n"
-                    f"{sizes_text}\n\n"
-                    "All files are 300 DPI, print-ready quality."
-                )
+                description = _build_digital_description(prod["description"] or "", ratio)
 
                 new_listing = await etsy.create_listing(access_token, shop_id, {
                     "title": digital_title,
