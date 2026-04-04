@@ -372,6 +372,24 @@ async def copy_mockups_to_digital(physical_listing_id: str):
     if not digital_id:
         raise HTTPException(status_code=404, detail="No digital listing found for this product")
 
+    # Delete existing images from digital listing first
+    try:
+        existing = await etsy.get_listing_images(access_token, digital_id)
+        old_imgs = [img["listing_image_id"] for img in existing.get("results", [])]
+        if old_imgs:
+            # Keep last one (Etsy requires min 1), delete rest
+            for old_id in old_imgs[:-1]:
+                try:
+                    await etsy.delete_listing_image(access_token, shop_id, digital_id, str(old_id))
+                    await asyncio.sleep(0.2)
+                except Exception:
+                    pass
+            kept_id = old_imgs[-1]
+        else:
+            kept_id = None
+    except Exception:
+        kept_id = None
+
     # Get images from physical listing
     phys_images = await etsy.get_listing_images(access_token, physical_listing_id)
     source_imgs = sorted(phys_images.get("results", []), key=lambda x: x.get("rank", 999))
@@ -395,6 +413,13 @@ async def copy_mockups_to_digital(physical_listing_id: str):
                 await asyncio.sleep(0.3)
             except Exception as e:
                 logger.warning(f"copy-mockup: failed for {physical_listing_id}: {e}")
+
+    # Delete the kept old image
+    if kept_id:
+        try:
+            await etsy.delete_listing_image(access_token, shop_id, digital_id, str(kept_id))
+        except Exception:
+            pass
 
     return {"copied": copied, "digital_listing_id": digital_id}
 
