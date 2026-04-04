@@ -1,13 +1,19 @@
+import csv
+import io
 import logging
 import re
 import asyncio
+import struct
 import unicodedata
 from typing import Optional, List
 from listing_generator import sanitize_tag
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
+
+import database as db
 
 from etsy import ETSY_COLOR_VALUES, ETSY_PRIMARY_COLOR_PROPERTY_ID, ETSY_SECONDARY_COLOR_PROPERTY_ID
 from deps import etsy, listing_gen
@@ -147,6 +153,355 @@ async def get_etsy_listings():
         raise HTTPException(status_code=e.response.status_code, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+SPECIAL_CHARS_RE = re.compile(r'[#@!]')
+
+
+def validate_etsy_tags(tags_str: str) -> dict:
+    """Validate and clean Etsy tags. Returns cleaned tags list and issues."""
+    raw = [t.strip() for t in tags_str.split(",") if t.strip()]
+    seen: set[str] = set()
+    issues: list[str] = []
+    cleaned: list[str] = []
+
+    for tag in raw:
+        # Remove special characters
+        original = tag
+        tag = SPECIAL_CHARS_RE.sub("", tag).strip()
+        if tag != original:
+            issues.append(f'stripped special chars: "{original}" -> "{tag}"')
+        # Truncate
+        if len(tag) > 20:
+            issues.append(f'truncated: "{tag}" -> "{tag[:20]}"')
+            tag = tag[:20].rstrip()
+        if not tag:
+            continue
+        # Deduplicate
+        key = tag.lower()
+        if key in seen:
+            issues.append(f'duplicate removed: "{tag}"')
+            continue
+        seen.add(key)
+        cleaned.append(tag)
+
+    if len(cleaned) > 13:
+        issues.append(f"kept first 13 of {len(cleaned)} tags")
+        cleaned = cleaned[:13]
+
+    return {"cleaned": cleaned, "issues": issues}
+
+
+MIN_WIDTH = 2400
+MIN_HEIGHT = 3000
+
+
+def _parse_png_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Extract width/height from PNG header (first 24 bytes)."""
+    if len(data) >= 24 and data[:8] == b'\x89PNG\r\n\x1a\n':
+        w, h = struct.unpack('>II', data[16:24])
+        return w, h
+    return None
+
+
+def _parse_jpeg_dimensions(data: bytes) -> tuple[int, int] | None:
+    """Extract width/height from JPEG by scanning SOF markers."""
+    i = 2  # skip SOI
+    while i < len(data) - 9:
+        if data[i] != 0xFF:
+            break
+        marker = data[i + 1]
+        # SOF0..SOF3 markers contain dimensions
+        if marker in (0xC0, 0xC1, 0xC2, 0xC3):
+            h, w = struct.unpack('>HH', data[i + 5:i + 9])
+            return w, h
+        length = struct.unpack('>H', data[i + 2:i + 4])[0]
+        i += 2 + length
+    return None
+
+
+async def _get_image_dimensions(client: httpx.AsyncClient, url: str) -> tuple[int, int] | None:
+    """Download first ~32KB of image and parse dimensions from header."""
+    try:
+        resp = await client.get(url, headers={"Range": "bytes=0-32767"}, timeout=10.0)
+        if resp.status_code not in (200, 206):
+            return None
+        data = resp.content
+        dims = _parse_png_dimensions(data)
+        if dims:
+            return dims
+        dims = _parse_jpeg_dimensions(data)
+        if dims:
+            return dims
+        return None
+    except Exception:
+        return None
+
+
+def _get_primary_image_url(listing: dict) -> str | None:
+    """Get url_fullxfull of the primary (rank=1) image from a listing."""
+    images = listing.get("images") or []
+    if not images:
+        return None
+    # Sort by rank, pick first
+    sorted_imgs = sorted(images, key=lambda x: x.get("rank", 999))
+    return sorted_imgs[0].get("url_fullxfull") or sorted_imgs[0].get("url_570xN")
+
+
+IMAGE_AUDIT_TASK_ID = "image_audit"
+
+
+@router.get("/etsy/export-csv")
+async def export_etsy_csv():
+    """Export all active Etsy listings as CSV with tag_issues column."""
+    access_token, shop_id = await ensure_etsy_token()
+    listings = await etsy.get_all_listings(access_token, shop_id)
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["listing_id", "title", "description", "tags", "price", "quantity", "tag_issues"])
+
+    for li in listings:
+        raw_tags = li.get("tags") or []
+        tags_str = ", ".join(raw_tags)
+        validation = validate_etsy_tags(tags_str)
+        tag_issues = "; ".join(validation["issues"]) if validation["issues"] else ""
+
+        price_raw = li.get("price", {})
+        if isinstance(price_raw, dict):
+            amount = price_raw.get("amount", 0)
+            divisor = price_raw.get("divisor", 100)
+            price = amount / divisor if divisor else 0
+        else:
+            price = price_raw or 0
+        writer.writerow([
+            li.get("listing_id", ""),
+            li.get("title", ""),
+            li.get("description", ""),
+            tags_str,
+            f"{price:.2f}",
+            li.get("quantity", 0),
+            tag_issues,
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=etsy_listings.csv"},
+    )
+
+
+# --- Image Quality Audit ---
+
+@router.post("/etsy/image-audit")
+async def start_image_audit(background_tasks: BackgroundTasks):
+    """Start background image quality audit. Check progress via GET /etsy/image-audit-status."""
+    existing = await db.get_background_task(IMAGE_AUDIT_TASK_ID)
+    if existing and existing.get("status") == "running":
+        return {
+            "started": False,
+            "message": f"Already running: {existing.get('done', 0)}/{existing.get('total', 0)} done",
+            "running": True,
+        }
+
+    access_token, shop_id = await ensure_etsy_token()
+    listings = await etsy.get_all_listings(access_token, shop_id)
+
+    total = len(listings)
+    await db.create_background_task(IMAGE_AUDIT_TASK_ID, "image_audit", total=total)
+    await db.update_background_task(IMAGE_AUDIT_TASK_ID, status="running")
+
+    background_tasks.add_task(_run_image_audit, listings)
+    return {"started": True, "total": total, "message": f"Auditing {total} listings..."}
+
+
+async def _run_image_audit(listings: list[dict]):
+    """Background task: check primary image resolution for all listings."""
+    done = 0
+    results = []
+    good = 0
+    low = 0
+    no_image = 0
+
+    try:
+        async with httpx.AsyncClient() as client:
+            # Process in batches of 10
+            for batch_start in range(0, len(listings), 10):
+                batch = listings[batch_start:batch_start + 10]
+                tasks = []
+                for li in batch:
+                    url = _get_primary_image_url(li)
+                    if url:
+                        tasks.append(_get_image_dimensions(client, url))
+                    else:
+                        tasks.append(_noop())
+
+                dims_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+                for li, dims in zip(batch, dims_list):
+                    listing_id = li.get("listing_id", "")
+                    title = (li.get("title") or "")[:60]
+                    url = _get_primary_image_url(li)
+
+                    if isinstance(dims, Exception) or dims is None:
+                        if not url:
+                            results.append({
+                                "listing_id": listing_id, "title": title,
+                                "img_width": 0, "img_height": 0,
+                                "img_resolution": "no image", "img_quality": "no image",
+                            })
+                            no_image += 1
+                        else:
+                            results.append({
+                                "listing_id": listing_id, "title": title,
+                                "img_width": 0, "img_height": 0,
+                                "img_resolution": "unknown", "img_quality": "unknown",
+                            })
+                    else:
+                        w, h = dims
+                        quality = "good" if w >= MIN_WIDTH and h >= MIN_HEIGHT else "low"
+                        if quality == "good":
+                            good += 1
+                        else:
+                            low += 1
+                        results.append({
+                            "listing_id": listing_id, "title": title,
+                            "img_width": w, "img_height": h,
+                            "img_resolution": f"{w}x{h}",
+                            "img_quality": quality,
+                        })
+                    done += 1
+
+                await db.update_background_task(
+                    IMAGE_AUDIT_TASK_ID, done=done,
+                    progress_json={"good": good, "low": low, "no_image": no_image},
+                )
+                await asyncio.sleep(0.2)  # rate limit between batches
+
+    except Exception as e:
+        logger.error(f"image-audit crashed: {e}")
+    finally:
+        # Build CSV in memory and store in progress_json
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["listing_id", "title", "img_width", "img_height", "img_resolution", "img_quality"])
+        for r in results:
+            writer.writerow([r["listing_id"], r["title"], r["img_width"], r["img_height"], r["img_resolution"], r["img_quality"]])
+
+        await db.update_background_task(
+            IMAGE_AUDIT_TASK_ID, status="completed", done=done,
+            progress_json={"good": good, "low": low, "no_image": no_image, "csv": buf.getvalue()},
+        )
+        logger.info(f"image-audit done: {good} good, {low} low, {no_image} no image")
+
+
+async def _noop():
+    return None
+
+
+@router.get("/etsy/image-audit-status")
+async def image_audit_status():
+    """Get image audit progress and summary."""
+    task = await db.get_background_task(IMAGE_AUDIT_TASK_ID)
+    if not task:
+        return {"status": "not_started"}
+    progress = task.get("progress_json") or {}
+    return {
+        "status": task.get("status", "unknown"),
+        "total": task.get("total", 0),
+        "done": task.get("done", 0),
+        "good": progress.get("good", 0),
+        "low": progress.get("low", 0),
+        "no_image": progress.get("no_image", 0),
+    }
+
+
+@router.get("/etsy/image-audit-csv")
+async def download_image_audit_csv():
+    """Download the completed image audit as CSV."""
+    task = await db.get_background_task(IMAGE_AUDIT_TASK_ID)
+    if not task or task.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Audit not completed yet. Start with POST /etsy/image-audit")
+    progress = task.get("progress_json") or {}
+    csv_data = progress.get("csv", "")
+    if not csv_data:
+        raise HTTPException(status_code=404, detail="No audit data found")
+    return StreamingResponse(
+        io.StringIO(csv_data),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=etsy_image_audit.csv"},
+    )
+
+
+@router.post("/etsy/import-csv")
+async def import_etsy_csv(file: UploadFile = File(...)):
+    """Import CSV to bulk-update Etsy listings with tag validation."""
+    access_token, shop_id = await ensure_etsy_token()
+
+    content = (await file.read()).decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+
+    required = {"listing_id", "title", "description", "tags"}
+    if not required.issubset(set(reader.fieldnames or [])):
+        missing = required - set(reader.fieldnames or [])
+        raise HTTPException(status_code=400, detail=f"Missing columns: {', '.join(missing)}")
+
+    rows = list(reader)
+    results = []
+    total_truncated = 0
+    total_duplicates = 0
+    for i, row in enumerate(rows):
+        listing_id = row.get("listing_id", "").strip()
+        if not listing_id:
+            results.append({"row": i + 1, "status": "skipped", "reason": "no listing_id"})
+            continue
+
+        update_data = {}
+        title = row.get("title", "").strip()
+        if title:
+            update_data["title"] = title[:140]
+        description = row.get("description", "").strip()
+        if description:
+            update_data["description"] = description
+
+        tag_issues = []
+        tags_str = row.get("tags", "").strip()
+        if tags_str:
+            validation = validate_etsy_tags(tags_str)
+            update_data["tags"] = validation["cleaned"]
+            tag_issues = validation["issues"]
+            total_truncated += sum(1 for iss in tag_issues if iss.startswith("truncated"))
+            total_duplicates += sum(1 for iss in tag_issues if iss.startswith("duplicate"))
+
+        if not update_data:
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "skipped", "reason": "nothing to update"})
+            continue
+
+        try:
+            await etsy.update_listing(access_token, shop_id, listing_id, update_data)
+            entry = {"row": i + 1, "listing_id": listing_id, "status": "ok"}
+            if tag_issues:
+                entry["tag_fixes"] = tag_issues
+            results.append(entry)
+        except httpx.HTTPStatusError as e:
+            body = e.response.text[:200] if e.response else ""
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "error", "error": f"{e} | {body}"})
+        except Exception as e:
+            results.append({"row": i + 1, "listing_id": listing_id, "status": "error", "error": str(e)})
+
+        await asyncio.sleep(0.3)
+
+    ok = sum(1 for r in results if r["status"] == "ok")
+    errors = sum(1 for r in results if r["status"] == "error")
+    return {
+        "total": len(rows),
+        "updated": ok,
+        "errors": errors,
+        "tags_truncated": total_truncated,
+        "duplicates_removed": total_duplicates,
+        "results": results,
+    }
 
 
 @router.get("/etsy/shop-sections")

@@ -3236,3 +3236,32 @@ export async function syncPinterestAnalytics(): Promise<{ synced: number; errors
   if (!res.ok) throw new Error('Failed to sync Pinterest analytics');
   return res.json();
 }
+
+// --- Etsy CSV Import/Export ---
+
+export function getExportCsvUrl(): string {
+  return `${getApiUrl()}/etsy/export-csv`;
+}
+
+export interface ImportCsvResult {
+  total: number;
+  updated: number;
+  errors: number;
+  tags_truncated: number;
+  duplicates_removed: number;
+  results: Array<{ row: number; listing_id?: string; status: string; error?: string; reason?: string; tag_fixes?: string[] }>;
+}
+
+export async function importEtsyCsv(file: File): Promise<ImportCsvResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch(`${getApiUrl()}/etsy/import-csv`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || 'Failed to import CSV');
+  }
+  return res.json();
+}

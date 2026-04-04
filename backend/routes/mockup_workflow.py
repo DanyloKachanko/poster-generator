@@ -8,7 +8,6 @@ import base64
 import io
 import json
 import logging
-import random
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -236,9 +235,11 @@ async def approve_poster(image_id: int, request: Optional[ApproveRequest] = None
                 else:
                     access_token, shop_id = await ensure_etsy_token()
 
-                    # Shuffle mockup order so each product gets a random primary
-                    shuffled_entries = mockup_entries[:]
-                    random.shuffle(shuffled_entries)
+                    # Round-robin primary: rotate mockups by product_id so each
+                    # listing gets a different primary image, cycling every N mockups
+                    n = len(mockup_entries)
+                    offset = product["id"] % n if n else 0
+                    rotated_entries = mockup_entries[offset:] + mockup_entries[:offset]
 
                     # Upload original poster + all mockups
                     upload_results = await _upload_multi_images_to_etsy(
@@ -246,7 +247,7 @@ async def approve_poster(image_id: int, request: Optional[ApproveRequest] = None
                         shop_id=shop_id,
                         listing_id=product["etsy_listing_id"],
                         original_poster_url=image["url"],
-                        mockup_entries=shuffled_entries,
+                        mockup_entries=rotated_entries,
                     )
 
                     # Save Etsy info back to image_mockups
