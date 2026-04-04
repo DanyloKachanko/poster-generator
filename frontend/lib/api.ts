@@ -3291,6 +3291,26 @@ export async function getDigitalDownloads(): Promise<DigitalDownloadsResponse> {
   return res.json();
 }
 
+export interface DigitalCreationStatus {
+  status: string;
+  total: number;
+  done: number;
+  ok: number;
+  errors: Array<{ listing_id?: string; title?: string; error: string }>;
+}
+
+export async function startDigitalCreation(): Promise<{ started: boolean; total: number; message: string }> {
+  const res = await apiFetch(`${getApiUrl()}/etsy/create-digital-listings`, { method: 'POST' });
+  if (!res.ok) throw new Error('Failed to start digital creation');
+  return res.json();
+}
+
+export async function getDigitalCreationStatus(): Promise<DigitalCreationStatus> {
+  const res = await apiFetch(`${getApiUrl()}/etsy/create-digital-status`);
+  if (!res.ok) throw new Error('Failed to get status');
+  return res.json();
+}
+
 export async function toggleDigitalEnabled(productIds: number[], enabled: boolean): Promise<{ updated: number }> {
   const res = await apiFetch(`${getApiUrl()}/etsy/digital-toggle`, {
     method: 'POST',

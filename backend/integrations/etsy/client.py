@@ -425,6 +425,56 @@ class EtsyAPI:
             response.raise_for_status()
             return response.json()
 
+    async def create_listing(
+        self, access_token: str, shop_id: str, data: dict
+    ) -> dict:
+        """Create a new draft listing."""
+        import urllib.parse
+
+        form_data = {}
+        for key, value in data.items():
+            if isinstance(value, bool):
+                form_data[key] = str(value).lower()
+            elif isinstance(value, list):
+                form_data[key] = ",".join(str(item) for item in value)
+            elif value is not None:
+                form_data[key] = str(value)
+        encoded_body = urllib.parse.urlencode(form_data)
+
+        async with httpx.AsyncClient() as client:
+            headers = {
+                **self._auth_headers(access_token),
+                "Content-Type": "application/x-www-form-urlencoded",
+            }
+            response = await client.post(
+                f"{self.BASE_URL}/shops/{shop_id}/listings",
+                headers=headers,
+                content=encoded_body.encode(),
+                timeout=30.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def upload_listing_file(
+        self, access_token: str, shop_id: str, listing_id: str,
+        file_bytes: bytes, filename: str, rank: int = 1,
+    ) -> dict:
+        """Upload a digital file to a listing."""
+        headers = self._auth_headers(access_token)
+        files = {"file": (filename, file_bytes, "application/zip")}
+        data = {"rank": str(rank), "name": filename}
+
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.BASE_URL}/shops/{shop_id}/listings/{listing_id}/files",
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=120.0,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def get_shop_sections(self, access_token: str, shop_id: str) -> dict:
         """Get shop sections."""
         async with httpx.AsyncClient() as client:

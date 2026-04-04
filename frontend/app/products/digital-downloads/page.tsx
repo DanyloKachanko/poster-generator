@@ -5,7 +5,10 @@ import {
   getApiUrl,
   getDigitalDownloads,
   toggleDigitalEnabled,
+  startDigitalCreation,
+  getDigitalCreationStatus,
   DigitalDownloadListing,
+  DigitalCreationStatus,
 } from '@/lib/api';
 
 export default function DigitalDownloadsPage() {
@@ -15,6 +18,44 @@ export default function DigitalDownloadsPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [creation, setCreation] = useState<DigitalCreationStatus | null>(null);
+  const [creationPolling, setCreationPolling] = useState(false);
+
+  const pollCreation = async () => {
+    try {
+      const data = await getDigitalCreationStatus();
+      setCreation(data);
+      if (data.status === 'running') {
+        setCreationPolling(true);
+      } else {
+        setCreationPolling(false);
+        if (data.status === 'completed') load();
+      }
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    if (!creationPolling) return;
+    const id = setInterval(pollCreation, 3000);
+    return () => clearInterval(id);
+  }, [creationPolling]);
+
+  const handleCreateDigital = async () => {
+    if (!confirm('Create digital listings on Etsy for all saved products?')) return;
+    setError(null);
+    try {
+      const data = await startDigitalCreation();
+      if (data.started) {
+        setCreation({ status: 'running', total: data.total, done: 0, ok: 0, errors: [] });
+        setCreationPolling(true);
+      } else {
+        setSuccessMsg(data.message);
+        pollCreation();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed');
+    }
+  };
 
   const load = () => {
     setIsLoading(true);
@@ -28,7 +69,7 @@ export default function DigitalDownloadsPage() {
       .finally(() => setIsLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); pollCreation(); }, []);
 
   const upscaledListings = useMemo(
     () => listings.filter((l) => l.has_upscale),
@@ -170,6 +211,61 @@ export default function DigitalDownloadsPage() {
       {successMsg && (
         <div className="bg-green-500/10 border border-green-500/30 text-green-400 rounded-lg p-3 text-sm">
           {successMsg}
+        </div>
+      )}
+
+      {/* Create Digital Listings */}
+      {savedIds.size > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-gray-100">Create Etsy Digital Listings</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                Creates new Etsy listings (type: digital download) with ZIP files containing 3 size variants for {savedIds.size} saved products.
+              </p>
+            </div>
+            <button
+              onClick={handleCreateDigital}
+              disabled={creation?.status === 'running'}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors font-medium text-sm"
+            >
+              {creation?.status === 'running' ? 'Creating...' : `Create ${savedIds.size} Digital Listings`}
+            </button>
+          </div>
+
+          {creation?.status === 'running' && (
+            <div className="mt-3">
+              <div className="flex justify-between text-sm text-gray-400 mb-1">
+                <span>Creating listings...</span>
+                <span>{creation.done}/{creation.total} ({creation.total > 0 ? Math.round((creation.done / creation.total) * 100) : 0}%)</span>
+              </div>
+              <div className="w-full bg-dark-hover rounded-full h-2">
+                <div
+                  className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${creation.total > 0 ? (creation.done / creation.total) * 100 : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {creation?.status === 'completed' && (
+            <div className="mt-3 text-sm">
+              <span className="text-green-400">{creation.ok} created</span>
+              {creation.errors.length > 0 && (
+                <span className="text-red-400 ml-3">{creation.errors.length} failed</span>
+              )}
+              {creation.errors.length > 0 && (
+                <details className="mt-2">
+                  <summary className="text-red-400 cursor-pointer text-xs">Show errors</summary>
+                  <div className="mt-1 space-y-1 text-xs text-gray-500">
+                    {creation.errors.map((e, i) => (
+                      <div key={i}>{e.title || e.listing_id}: {e.error}</div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
         </div>
       )}
 

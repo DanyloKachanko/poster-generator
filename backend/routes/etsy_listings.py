@@ -5,6 +5,7 @@ import re
 import asyncio
 import struct
 import unicodedata
+from pathlib import Path
 from typing import Optional, List
 from listing_generator import sanitize_tag
 
@@ -387,6 +388,234 @@ async def toggle_digital_enabled(request: DigitalToggleRequest):
     return {
         "updated": len(request.product_ids),
         "enabled": request.enabled,
+    }
+
+
+# --- Create Digital Listings ---
+
+DIGITAL_TASK_ID = "create_digital_listings"
+
+DIGITAL_SIZES = [
+    ("print_2x3.jpg", 2400, 3600),   # 2:3
+    ("print_4x5.jpg", 2400, 3000),   # 4:5
+    ("print_square.jpg", 3000, 3000), # 1:1
+]
+
+DIGITAL_DIR = Path("/media/digital")
+DIGITAL_DIR_HOST = Path("/var/www/dovshop/media/digital")
+
+
+def _create_size_variants(upscaled_path: str, listing_id: str) -> bytes:
+    """Create ZIP with 3 size variants from upscaled image. Returns ZIP bytes."""
+    import zipfile
+    from PIL import Image
+
+    # Resolve container vs host path
+    src = Path(upscaled_path.replace("/var/www/dovshop/media", "/media"))
+    if not src.exists():
+        src = Path(upscaled_path)
+
+    img = Image.open(src)
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename, target_w, target_h in DIGITAL_SIZES:
+            # Center-crop to target aspect ratio, then resize
+            src_w, src_h = img.size
+            target_ratio = target_w / target_h
+            src_ratio = src_w / src_h
+
+            if src_ratio > target_ratio:
+                # Source wider: crop width
+                new_w = int(src_h * target_ratio)
+                left = (src_w - new_w) // 2
+                cropped = img.crop((left, 0, left + new_w, src_h))
+            else:
+                # Source taller: crop height
+                new_h = int(src_w / target_ratio)
+                top = (src_h - new_h) // 2
+                cropped = img.crop((0, top, src_w, top + new_h))
+
+            resized = cropped.resize((target_w, target_h), Image.LANCZOS)
+
+            jpg_buf = io.BytesIO()
+            resized.save(jpg_buf, format="JPEG", quality=95, dpi=(300, 300))
+            zf.writestr(filename, jpg_buf.getvalue())
+
+    return zip_buf.getvalue()
+
+
+@router.post("/etsy/create-digital-listings")
+async def create_digital_listings(background_tasks: BackgroundTasks):
+    """Create Etsy digital listings for all products with digital_enabled=true."""
+    existing = await db.get_background_task(DIGITAL_TASK_ID)
+    if existing and existing.get("status") == "running":
+        return {
+            "started": False,
+            "message": f"Already running: {existing.get('done', 0)}/{existing.get('total', 0)} done",
+        }
+
+    access_token, shop_id = await ensure_etsy_token()
+
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        # Add column if needed
+        await conn.execute(
+            "ALTER TABLE products ADD COLUMN IF NOT EXISTS digital_etsy_id TEXT"
+        )
+        rows = await conn.fetch(
+            """
+            SELECT p.id, p.title, p.description, p.tags, p.etsy_listing_id,
+                   gi.upscaled_path
+            FROM products p
+            JOIN generated_images gi ON gi.product_id = p.id
+            WHERE p.digital_enabled = true
+              AND p.digital_etsy_id IS NULL
+              AND gi.upscaled_path IS NOT NULL
+              AND p.status != 'deleted'
+            ORDER BY p.id
+            """
+        )
+
+    if not rows:
+        return {"started": False, "total": 0, "message": "No products to process"}
+
+    products = [dict(r) for r in rows]
+    total = len(products)
+    await db.create_background_task(DIGITAL_TASK_ID, "create_digital", total=total)
+    await db.update_background_task(DIGITAL_TASK_ID, status="running")
+
+    background_tasks.add_task(
+        _run_create_digital, products, access_token, shop_id
+    )
+    return {"started": True, "total": total, "message": f"Creating {total} digital listings..."}
+
+
+async def _run_create_digital(products: list, access_token: str, shop_id: str):
+    """Background: create ZIP + Etsy digital listing for each product."""
+    done = 0
+    ok = 0
+    errors = []
+
+    DIGITAL_DIR.mkdir(parents=True, exist_ok=True)
+
+    try:
+        for prod in products:
+            product_id = prod["id"]
+            listing_id = prod["etsy_listing_id"]
+            title = prod["title"] or ""
+
+            try:
+                # 1. Create ZIP with size variants
+                zip_bytes = _create_size_variants(prod["upscaled_path"], listing_id)
+
+                zip_path = DIGITAL_DIR / f"{listing_id}.zip"
+                zip_path.write_bytes(zip_bytes)
+
+                # 2. Create digital listing on Etsy
+                digital_title = f"{title} | Digital Download | Printable Wall Art"[:140]
+                tags = prod["tags"] or []
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+                # Add digital-specific tags
+                for dt in ["digital download", "printable wall art", "instant download"]:
+                    if dt not in [t.lower() for t in tags] and len(tags) < 13:
+                        tags.append(dt)
+
+                description = (prod["description"] or "") + "\n\n" + (
+                    "INSTANT DOWNLOAD - No physical item will be shipped.\n\n"
+                    "You will receive a ZIP file containing 3 high-resolution JPG files:\n"
+                    "- 2400 x 3600 px (2:3 ratio) - fits 8x12, 16x24, 20x30\n"
+                    "- 2400 x 3000 px (4:5 ratio) - fits 8x10, 16x20, 24x30\n"
+                    "- 3000 x 3000 px (1:1 square) - fits any square frame\n\n"
+                    "All files are 300 DPI, print-ready quality."
+                )
+
+                new_listing = await etsy.create_listing(access_token, shop_id, {
+                    "title": digital_title,
+                    "description": description,
+                    "tags": tags,
+                    "price": 4.99,
+                    "quantity": 999,
+                    "who_made": "i_did",
+                    "when_made": "made_to_order",
+                    "taxonomy_id": 1027,
+                    "type": "download",
+                    "is_supply": False,
+                    "should_auto_renew": True,
+                })
+
+                new_listing_id = str(new_listing.get("listing_id", ""))
+
+                # 3. Upload ZIP as digital file
+                await etsy.upload_listing_file(
+                    access_token, shop_id, new_listing_id,
+                    zip_bytes, f"{listing_id}_printable.zip",
+                )
+
+                # 4. Upload first image from original listing as preview
+                try:
+                    orig_images = await etsy.get_listing_images(access_token, listing_id)
+                    first_img = (orig_images.get("results") or [{}])[0]
+                    img_url = first_img.get("url_fullxfull", "")
+                    if img_url:
+                        async with httpx.AsyncClient() as client:
+                            img_resp = await client.get(img_url, timeout=30.0, follow_redirects=True)
+                            if img_resp.status_code == 200:
+                                await etsy.upload_listing_image(
+                                    access_token, shop_id, new_listing_id,
+                                    img_resp.content, "preview.jpg", rank=1,
+                                )
+                except Exception as img_err:
+                    logger.warning(f"digital: could not copy image for {listing_id}: {img_err}")
+
+                # 5. Save to DB
+                pool = await db.get_pool()
+                async with pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE products SET digital_etsy_id = $1 WHERE id = $2",
+                        new_listing_id, product_id,
+                    )
+
+                ok += 1
+                logger.info(f"digital: {done + 1}/{len(products)} created: {digital_title[:50]} -> {new_listing_id}")
+
+            except Exception as e:
+                logger.error(f"digital: failed {listing_id}: {e}")
+                errors.append({"listing_id": listing_id, "title": title[:50], "error": str(e)})
+
+            done += 1
+            await db.update_background_task(
+                DIGITAL_TASK_ID, done=done,
+                progress_json={"ok": ok, "errors": errors},
+            )
+            await asyncio.sleep(1)  # rate limit
+
+    except Exception as e:
+        logger.error(f"digital: background task crashed: {e}")
+        errors.append({"error": f"Fatal: {e}"})
+    finally:
+        await db.update_background_task(
+            DIGITAL_TASK_ID, status="completed", done=done,
+            progress_json={"ok": ok, "errors": errors},
+        )
+
+
+@router.get("/etsy/create-digital-status")
+async def digital_creation_status():
+    """Get digital listing creation progress."""
+    task = await db.get_background_task(DIGITAL_TASK_ID)
+    if not task:
+        return {"status": "not_started"}
+    progress = task.get("progress_json") or {}
+    return {
+        "status": task.get("status", "unknown"),
+        "total": task.get("total", 0),
+        "done": task.get("done", 0),
+        "ok": progress.get("ok", 0),
+        "errors": progress.get("errors", []),
     }
 
 
