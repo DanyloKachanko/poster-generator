@@ -533,9 +533,10 @@ async def _run_create_digital(products: list, access_token: str, shop_id: str):
 
                 # 2. Create digital listing on Etsy
                 digital_title = f"{title} | Digital Download | Printable Wall Art"[:140]
-                tags = prod["tags"] or []
-                if isinstance(tags, str):
-                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+                raw_tags = prod["tags"] or []
+                if isinstance(raw_tags, str):
+                    raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+                tags = [t[:20] for t in raw_tags][:10]  # Leave room for digital tags
                 for dt in ["digital download", "printable wall art", "instant download"]:
                     if dt not in [t.lower() for t in tags] and len(tags) < 13:
                         tags.append(dt)
